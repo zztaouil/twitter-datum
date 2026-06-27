@@ -21,8 +21,8 @@ TARGETS = [
     "Ali_AlQaradaghi",
     "realDonaldTrump",
 ]
-N = 200
-Y = 100
+N = 20
+Y = 10
 
 
 def run_target(client, conn, target):
