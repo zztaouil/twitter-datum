@@ -27,7 +27,7 @@ TARGETS = [
 N = 2000
 Y = 1000
 LOG_EVERY = 20
-_WINDOW = 30  # 15-min rate-limit window in seconds
+_WINDOW = 360 # 15-min rate-limit window in seconds
 
 _stop = False
 
@@ -44,7 +44,7 @@ signal.signal(signal.SIGINT, _handle_sigint)
 def _human_pause():
     # ponytail: probabilistic window skip + jitter; upgrade to token-budget pacing if fingerprinting becomes an issue
     if random.random() < 0.01:
-        wait = _WINDOW + random.uniform(-10, 10)
+        wait = _WINDOW + random.uniform(-30, 30)
         print(f"  [idle] skipping window ({wait:.0f}s)")
         deadline = time.time() + wait
         while time.time() < deadline and not _stop:
@@ -80,7 +80,7 @@ def run_target(client, conn, target):
                 collected.append(t)
         if not cursor or not tweets:
             break
-        # _human_pause()
+        _human_pause()
 
     collected = collected[:N]
     print(f"Collected {len(collected)} tweets older than {oldest_in_db:%Y-%m-%d}")
