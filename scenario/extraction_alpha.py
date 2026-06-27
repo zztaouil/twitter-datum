@@ -43,12 +43,14 @@ signal.signal(signal.SIGINT, _handle_sigint)
 
 def _human_pause():
     # ponytail: probabilistic window skip + jitter; upgrade to token-budget pacing if fingerprinting becomes an issue
-    if random.random() < 0.05:
+    if random.random() < 0.01:
         wait = _WINDOW + random.uniform(-60, 60)
         print(f"  [idle] skipping window ({wait:.0f}s)")
-        time.sleep(wait)
+        deadline = time.time() + wait
+        while time.time() < deadline and not _stop:
+            time.sleep(1)
     else:
-        time.sleep(random.uniform(2, 18))
+        time.sleep(random.uniform(0, 1.5))
 
 
 def run_target(client, conn, target):
@@ -78,6 +80,7 @@ def run_target(client, conn, target):
                 collected.append(t)
         if not cursor or not tweets:
             break
+        # _human_pause()
 
     collected = collected[:N]
     print(f"Collected {len(collected)} tweets older than {oldest_in_db:%Y-%m-%d}")
