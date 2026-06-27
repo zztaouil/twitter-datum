@@ -67,8 +67,7 @@ def run_target(client, conn, target):
         for r in replies:
             db.save_tweet(conn, r, parent_tweet_id=tweet.id)
         print(f" → {len(replies)} replies")
-
-    conn.commit()
+        conn.commit()
 
 
 def main():
