@@ -17,11 +17,11 @@ from src import TwitterClient, get_profile, get_replies, get_tweets
 import src.db as db
 
 TARGETS = [
-    # "fm6oaorg",
-    # "Saudi_Moia",
-    # "diyanet_en",
-    # "h_bennajeh",
-    # "Ali_AlQaradaghi",
+    "fm6oaorg",
+    "Saudi_Moia",
+    "diyanet_en",
+    "h_bennajeh",
+    "Ali_AlQaradaghi",
     "realDonaldTrump",
 ]
 N = 20
@@ -52,13 +52,9 @@ def _human_pause():
 
 
 def run_target(client, conn, target):
-    row = conn.execute("SELECT id FROM users WHERE username = ?", (target,)).fetchone()
-    if row:
-        user_id = row[0]
-    else:
-        profile = get_profile(client, target)
-        db.save_user(conn, profile)
-        user_id = profile.id
+    profile = get_profile(client, target)
+    db.save_user(conn, profile)
+    user_id = profile.id
 
     row = conn.execute(
         "SELECT created_at FROM tweets WHERE user_id = ? AND parent_tweet_id IS NULL"

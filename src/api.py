@@ -36,7 +36,7 @@ def _parse_user_result(result: dict) -> User:
         location=location_obj.get("location") or legacy.get("location", ""),
         followers=int(relationship_counts.get("followers") or legacy.get("followers_count", 0)),
         following=int(relationship_counts.get("following") or legacy.get("friends_count", 0)),
-        tweets_count=legacy.get("statuses_count", 0),
+        tweets_count=int(relationship_counts.get("statuses_count") or legacy.get("statuses_count", 0)),
         protected=privacy.get("protected", legacy.get("protected", False)),
     )
 
