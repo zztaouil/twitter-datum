@@ -19,7 +19,23 @@ il faut extraire des données qui permettent de cartographier :
 
 ---
 
-- get 1 tweet of an account
-- get 10 replies
-- save to json
+### Premiere exploration
 
+Elle a pour but de construire un proof of concept pour le graph
+
+On va partir sur 10 tweets plus recent de nos target, extraire 50 reply et mapper le graph.
+Les profils sont des noeuds les liens sont des reponses.
+
+```
+- get 10 tweet of an account
+- for each tweet get 50 reply (skip RT tweet)
+- save reply authors 
+```
+
+
+
+#### Notes
+For large scale extraction.
+- we have to study how rate limits works.
+- how much do our workflows cost
+- setup db to persist data and enrich it gradually

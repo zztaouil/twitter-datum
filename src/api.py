@@ -166,7 +166,6 @@ def get_replies(
         "withV2Timeline": True,
     }
     data = client._fetch(_ENDPOINT_TWEET, variables)
-    import json as _j; open("debug_replies.json", "w").write(_j.dumps(data, indent=2, default=str))  # ponytail: debug, remove after
     instructions = (
         data.get("data", {})
         .get("timelineResponse", data.get("data", {}).get("timeline_response", {}))

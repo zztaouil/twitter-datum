@@ -2,6 +2,7 @@ import json
 import random
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -58,24 +59,24 @@ class Session:
     id: str
     auth_token: str
     ct0: str
-    # ponytail: per-endpoint (remaining, reset_timestamp)
-    _limits: dict[str, tuple[int, int]] = field(default_factory=dict, repr=False)
+    # ponytail: per-endpoint (limit, remaining, reset_timestamp)
+    _limits: dict[str, tuple[int, int, int]] = field(default_factory=dict, repr=False)
 
     def is_limited(self, endpoint: str) -> bool:
         if endpoint not in self._limits:
             return False
-        remaining, reset = self._limits[endpoint]
+        _, remaining, reset = self._limits[endpoint]
         return remaining <= 10 and reset > int(time.time())
 
-    def update_limit(self, endpoint: str, remaining: int, reset: int) -> None:
+    def update_limit(self, endpoint: str, limit: int, remaining: int, reset: int) -> None:
         cur = self._limits.get(endpoint)
         # match nitter's race-condition guard: don't go backwards
-        if cur and cur[1] == reset and cur[0] <= remaining:
-            self._limits[endpoint] = (remaining, reset)
+        if cur and cur[2] == reset and cur[1] <= remaining:
+            self._limits[endpoint] = (limit, remaining, reset)
             return
-        if cur and cur[1] > reset and cur[0] < remaining:
+        if cur and cur[2] > reset and cur[1] < remaining:
             return
-        self._limits[endpoint] = (remaining, reset)
+        self._limits[endpoint] = (limit, remaining, reset)
 
     def headers(self) -> dict[str, str]:
         return {
@@ -121,6 +122,20 @@ class TwitterClient:
             raise RateLimitError(f"All {len(self._pool)} session(s) rate-limited for {endpoint}")
         return random.choice(available)
 
+    def rate_limit_summary(self) -> None:
+        print("\n─── Rate Limits ─────────────────────────────────────────────────────")
+        for session in self._pool:
+            label = f"@{session.username}" if session.username else session.id or "anonymous"
+            print(f"Account: {label}")
+            if not session._limits:
+                print("  (no requests made)")
+                continue
+            for endpoint, (limit, remaining, reset) in session._limits.items():
+                name = endpoint.split("/")[-1]
+                consumed = limit - remaining
+                resets_at = datetime.fromtimestamp(reset, tz=timezone.utc).strftime("%H:%M UTC")
+                print(f"  {name:<40}  started: {limit:>4}  consumed: {consumed:>4}  remaining: {remaining:>4}  resets: {resets_at}")
+
     def _fetch(self, endpoint: str, variables: dict, field_toggles: str = "") -> dict:
         session = self._pick_session(endpoint)
         params: dict[str, str] = {
@@ -134,9 +149,10 @@ class TwitterClient:
         resp.raise_for_status()
 
         try:
+            limit = int(resp.headers["x-rate-limit-limit"])
             remaining = int(resp.headers["x-rate-limit-remaining"])
             reset = int(resp.headers["x-rate-limit-reset"])
-            session.update_limit(endpoint, remaining, reset)
+            session.update_limit(endpoint, limit, remaining, reset)
         except (KeyError, ValueError):
             pass
 
