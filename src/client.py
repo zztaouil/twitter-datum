@@ -66,7 +66,7 @@ class Session:
         if endpoint not in self._limits:
             return False
         _, remaining, reset = self._limits[endpoint]
-        return remaining <= 10 and reset > int(time.time())
+        return remaining <= 5 and reset > int(time.time())
 
     def update_limit(self, endpoint: str, limit: int, remaining: int, reset: int) -> None:
         cur = self._limits.get(endpoint)
@@ -117,10 +117,17 @@ class TwitterClient:
         return client
 
     def _pick_session(self, endpoint: str) -> Session:
-        available = [s for s in self._pool if not s.is_limited(endpoint)]
-        if not available:
-            raise RateLimitError(f"All {len(self._pool)} session(s) rate-limited for {endpoint}")
-        return random.choice(available)
+        while True:
+            available = [s for s in self._pool if not s.is_limited(endpoint)]
+            if available:
+                return random.choice(available)
+            resets = [s._limits[endpoint][2] for s in self._pool if endpoint in s._limits]
+            if not resets:
+                raise RateLimitError(f"All {len(self._pool)} session(s) rate-limited for {endpoint}")
+            wait = max(0, min(resets) - int(time.time())) + 1
+            resume = datetime.fromtimestamp(min(resets), tz=timezone.utc).strftime("%H:%M:%S UTC")
+            print(f"\n[rate limit] all sessions exhausted for {endpoint.split('/')[-1]} — waiting {wait}s (resets at {resume})")
+            time.sleep(wait)
 
     def rate_limit_summary(self) -> None:
         print("\n─── Rate Limits ─────────────────────────────────────────────────────")
