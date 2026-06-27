@@ -21,82 +21,96 @@ def _parse_twitter_date(s: str) -> datetime:
         return datetime.fromtimestamp(0, tz=timezone.utc)
 
 
-def _parse_user_legacy(legacy: dict, rest_id: str = "") -> User:
+def _parse_user_result(result: dict) -> User:
+    legacy = result.get("legacy") or {}
+    core = result.get("core") or {}
+    privacy = result.get("privacy") or {}
+    profile_bio = result.get("profile_bio") or {}
+    relationship_counts = result.get("relationship_counts") or {}
+    location_obj = result.get("location") or {}
     return User(
-        id=rest_id or legacy.get("id_str", ""),
-        username=legacy.get("screen_name", ""),
-        fullname=legacy.get("name", ""),
-        bio=legacy.get("description", ""),
-        location=legacy.get("location", ""),
-        followers=legacy.get("followers_count", 0),
-        following=legacy.get("friends_count", 0),
+        id=result.get("rest_id") or legacy.get("id_str", ""),
+        username=core.get("screen_name") or legacy.get("screen_name", ""),
+        fullname=core.get("name") or legacy.get("name", ""),
+        bio=profile_bio.get("description") or legacy.get("description", ""),
+        location=location_obj.get("location") or legacy.get("location", ""),
+        followers=relationship_counts.get("followers") or legacy.get("followers_count", 0),
+        following=relationship_counts.get("following") or legacy.get("friends_count", 0),
         tweets_count=legacy.get("statuses_count", 0),
-        protected=legacy.get("protected", False),
+        protected=privacy.get("protected", legacy.get("protected", False)),
     )
 
 
 def _parse_tweet_result(node: dict, fallback_user: User | None = None) -> Tweet | None:
-    if not node or "legacy" not in node:
+    if not node:
         return None
-    legacy = node["legacy"]
+    legacy = node.get("legacy") or {}
+    details = node.get("details") or {}
+    counts = node.get("counts") or {}
     user_node = (node.get("core") or {}).get("user_results") or {}
     user_result = user_node.get("result") or {}
-    user_legacy = user_result.get("legacy") or {}
-    user = _parse_user_legacy(user_legacy, user_result.get("rest_id", "")) if user_legacy else fallback_user
+    user = _parse_user_result(user_result) if user_result else fallback_user
     if not user:
         return None
 
-    # note tweet has full text in note_tweet path
-    text = legacy.get("full_text", "")
+    text = details.get("full_text") or legacy.get("full_text", "")
     note = node.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
     if note:
         text = note.get("text", text)
 
+    created_at_ms = details.get("created_at_ms")
+    if created_at_ms:
+        created_at = datetime.fromtimestamp(created_at_ms / 1000, tz=timezone.utc)
+    else:
+        created_at = _parse_twitter_date(legacy.get("created_at", ""))
+
     return Tweet(
-        id=node.get("rest_id", legacy.get("id_str", "")),
+        id=node.get("rest_id") or legacy.get("id_str", ""),
         user=user,
         text=text,
-        created_at=_parse_twitter_date(legacy.get("created_at", "")),
-        reply_count=legacy.get("reply_count", 0),
-        retweet_count=legacy.get("retweet_count", 0),
-        like_count=legacy.get("favorite_count", 0),
+        created_at=created_at,
+        reply_count=counts.get("reply_count") or legacy.get("reply_count", 0),
+        retweet_count=counts.get("retweet_count") or legacy.get("retweet_count", 0),
+        like_count=counts.get("favorite_count") or legacy.get("favorite_count", 0),
         view_count=int((node.get("views") or {}).get("count") or 0),
     )
 
 
 def _extract_tweet_node(entry: dict) -> dict | None:
-    # try direct tweet result first, then items list
     result = (
         entry.get("content", {})
-        .get("itemContent", {})
+        .get("content", {})
         .get("tweet_results", {})
         .get("result")
     )
     if result:
         return result
     for item in entry.get("content", {}).get("items", []):
-        r = item.get("item", {}).get("itemContent", {}).get("tweet_results", {}).get("result")
+        r = item.get("item", {}).get("content", {}).get("tweet_results", {}).get("result")
         if r:
             return r
     return None
 
 
-def _walk_instructions(instructions: list) -> tuple[list[Tweet], str]:
+def _walk_instructions(
+    instructions: list,
+    max_count: int = 0,
+    entry_prefixes: tuple = ("tweet", "profile-conversation"),
+) -> tuple[list[Tweet], str]:
     tweets: list[Tweet] = []
     cursor = ""
     for inst in instructions:
         for entry in inst.get("entries", []):
-            entry_id = entry.get("entryId", "")
-            if entry_id.startswith("tweet") or entry_id.startswith("profile-grid"):
+            entry_id = entry.get("entry_id", "")
+            if any(entry_id.startswith(p) for p in entry_prefixes):
                 node = _extract_tweet_node(entry)
                 t = _parse_tweet_result(node) if node else None
                 if t:
                     tweets.append(t)
+                    if max_count and len(tweets) >= max_count:
+                        return tweets, cursor
             elif entry_id.startswith("cursor-bottom"):
-                cursor = (
-                    entry.get("content", {}).get("value")
-                    or entry.get("content", {}).get("itemContent", {}).get("value", "")
-                )
+                cursor = entry.get("content", {}).get("value", "")
     return tweets, cursor
 
 
@@ -111,12 +125,15 @@ def get_profile(client: TwitterClient, username: str) -> User:
         .get("user", {})
         .get("result", {})
     )
-    legacy = result.get("legacy", {})
-    return _parse_user_legacy(legacy, result.get("rest_id", ""))
+    return _parse_user_result(result)
 
 
 def get_tweets(
-    client: TwitterClient, user_id: str, cursor: str | None = None, count: int = 20
+    client: TwitterClient,
+    user_id: str,
+    cursor: str | None = None,
+    count: int = 20,
+    max_count: int = 20,
 ) -> tuple[list[Tweet], str]:
     variables: dict = {"rest_id": user_id, "count": count}
     if cursor:
@@ -124,13 +141,40 @@ def get_tweets(
     data = client._fetch(_ENDPOINT_TWEETS, variables, field_toggles=_TOGGLES_TWEETS)
     instructions = (
         data.get("data", {})
-        .get("user", {})
+        .get("user_result", {})
         .get("result", {})
-        .get("timeline", {})
+        .get("timeline_response", {})
         .get("timeline", {})
         .get("instructions", [])
     )
-    return _walk_instructions(instructions)
+    return _walk_instructions(instructions, max_count=max_count)
+
+
+def get_replies(
+    client: TwitterClient,
+    tweet_id: str,
+    cursor: str | None = None,
+    max_count: int = 0,
+) -> tuple[list[Tweet], str]:
+    variables = {
+        "postId": tweet_id,
+        "cursor": cursor or "",
+        "includeHasBirdwatchNotes": False,
+        "includePromotedContent": False,
+        "withBirdwatchNotes": True,
+        "withVoice": False,
+        "withV2Timeline": True,
+    }
+    data = client._fetch(_ENDPOINT_TWEET, variables)
+    import json as _j; open("debug_replies.json", "w").write(_j.dumps(data, indent=2, default=str))  # ponytail: debug, remove after
+    instructions = (
+        data.get("data", {})
+        .get("timelineResponse", data.get("data", {}).get("timeline_response", {}))
+        .get("instructions", [])
+    )
+    return _walk_instructions(
+        instructions, max_count=max_count, entry_prefixes=("conversationthread",)
+    )
 
 
 def get_tweet(client: TwitterClient, tweet_id: str) -> Tweet | None:
@@ -151,7 +195,7 @@ def get_tweet(client: TwitterClient, tweet_id: str) -> Tweet | None:
     )
     for inst in instructions:
         for entry in inst.get("entries", []):
-            if entry.get("entryId", "").endswith(tweet_id):
+            if entry.get("entry_id", "").endswith(tweet_id):
                 node = _extract_tweet_node(entry)
                 if node:
                     return _parse_tweet_result(node)
@@ -159,7 +203,7 @@ def get_tweet(client: TwitterClient, tweet_id: str) -> Tweet | None:
 
 
 def search_tweets(
-    client: TwitterClient, query: str, cursor: str | None = None
+    client: TwitterClient, query: str, cursor: str | None = None, max_count: int = 0
 ) -> tuple[list[Tweet], str]:
     variables: dict = {
         "rawQuery": query,
@@ -179,4 +223,4 @@ def search_tweets(
         .get("timeline", {})
         .get("instructions", [])
     )
-    return _walk_instructions(instructions)
+    return _walk_instructions(instructions, max_count=max_count)

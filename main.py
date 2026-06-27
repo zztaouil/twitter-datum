@@ -1,23 +1,26 @@
-from pathlib import Path
+import json
+from dataclasses import asdict
+from src import TwitterClient, get_profile, get_tweets, get_replies
 
-from src import TwitterClient, get_profile, get_tweets
-
+TARGET = "realDonaldTrump"
 
 def main():
     client = TwitterClient.from_file("sessions.jsonl")
 
-    targets = [
-        line.strip().lstrip("@")
-        for line in Path("targets.txt").read_text().splitlines()
-        if line.strip()
-    ]
+    user = get_profile(client, TARGET)
+    tweets, _ = get_tweets(client, user.id, max_count=20)
+    tweet = next(t for t in tweets if not t.text.startswith("RT "))
 
-    for username in targets:
-        user = get_profile(client, username)
-        tweets, _ = get_tweets(client, user.id)
-        print(f"@{user.username} ({user.followers} followers) — {len(tweets)} tweets fetched")
-        for t in tweets[:3]:
-            print(f"  [{t.id}] {t.text[:80]!r}")
+    replies, _ = get_replies(client, tweet.id, max_count=10)
+
+    result = {
+        "tweet": asdict(tweet),
+        "replies": [asdict(r) for r in replies],
+    }
+
+    with open("out.json", "w") as f:
+        json.dump(result, f, indent=2, default=str)
+    print(f"saved tweet {tweet.id} + {len(replies)} replies to out.json")
 
 
 if __name__ == "__main__":
