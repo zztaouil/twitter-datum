@@ -24,8 +24,8 @@ TARGETS = [
     "Ali_AlQaradaghi",
     "realDonaldTrump",
 ]
-N = 20
-Y = 20
+N = 2000
+Y = 1000
 LOG_EVERY = 20
 _WINDOW = 900  # 15-min rate-limit window in seconds
 
@@ -43,7 +43,7 @@ signal.signal(signal.SIGINT, _handle_sigint)
 
 def _human_pause():
     # ponytail: probabilistic window skip + jitter; upgrade to token-budget pacing if fingerprinting becomes an issue
-    if random.random() < 0.10:
+    if random.random() < 0.05:
         wait = _WINDOW + random.uniform(-60, 60)
         print(f"  [idle] skipping window ({wait:.0f}s)")
         time.sleep(wait)
