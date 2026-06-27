@@ -34,8 +34,8 @@ def _parse_user_result(result: dict) -> User:
         fullname=core.get("name") or legacy.get("name", ""),
         bio=profile_bio.get("description") or legacy.get("description", ""),
         location=location_obj.get("location") or legacy.get("location", ""),
-        followers=relationship_counts.get("followers") or legacy.get("followers_count", 0),
-        following=relationship_counts.get("following") or legacy.get("friends_count", 0),
+        followers=int(relationship_counts.get("followers") or legacy.get("followers_count", 0)),
+        following=int(relationship_counts.get("following") or legacy.get("friends_count", 0)),
         tweets_count=legacy.get("statuses_count", 0),
         protected=privacy.get("protected", legacy.get("protected", False)),
     )
