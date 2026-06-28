@@ -18,7 +18,7 @@ from src.utils import write_csv, write_gexf
 def run(conn, username: str) -> None:
     cur = conn.cursor()
 
-    cur.execute("SELECT id, fullname, followers, following FROM users WHERE username = ?", (username,))
+    cur.execute("SELECT id, fullname, followers, following FROM users WHERE username = ? COLLATE NOCASE", (username,))
     row = cur.fetchone()
     if not row:
         print(f"user '{username}' not found")
