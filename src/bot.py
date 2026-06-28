@@ -37,7 +37,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"{targets_str}\n\n"
         "/extract — exporter les données et aperçus pour un utilisateur\n"
         "/insight — aperçu de la base de données (utilisateurs, tweets, réponses)\n"
-        "/1\\_word\\_frequency — mots les plus fréquents pour un utilisateur",
+        "/1\_word\_frequency — mots les plus fréquents pour un utilisateur",
         parse_mode="Markdown",
     )
 
