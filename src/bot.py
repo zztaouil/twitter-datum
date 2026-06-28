@@ -23,15 +23,15 @@ WAIT_USERNAME = 0
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "*Twitter Datum Bot*\n\n"
-        "Explore reply networks scraped from Twitter.\n\n"
-        "/extract — export data & cluster insights for a username\n"
-        "/insight — database overview (users, tweets, replies)",
+        "Explorez les réseaux de réponses extraits de Twitter.\n\n"
+        "/extract — exporter les données et aperçus pour un utilisateur\n"
+        "/insight — aperçu de la base de données (utilisateurs, tweets, réponses)",
         parse_mode="Markdown",
     )
 
 
 async def extract_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Enter the Twitter username to extract:")
+    await update.message.reply_text("Entrez le nom d'utilisateur Twitter à extraire :")
     return WAIT_USERNAME
 
 
@@ -43,11 +43,11 @@ async def extract_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     cur.execute("SELECT id, fullname, followers, following FROM users WHERE username = ? COLLATE NOCASE", (username,))
     row = cur.fetchone()
     if not row:
-        await update.message.reply_text(f"User '{username}' not found in database.")
+        await update.message.reply_text(f"Utilisateur '{username}' introuvable dans la base de données.")
         return ConversationHandler.END
     user_id, fullname, followers, following = row
 
-    await update.message.reply_text(f"Extracting @{username}…")
+    await update.message.reply_text(f"Extraction de @{username} en cours…")
 
     cur.execute(
         "SELECT id, user_id, text, created_at, reply_count, retweet_count, like_count, view_count, parent_tweet_id "
@@ -67,7 +67,8 @@ async def extract_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         replies = cur.fetchall()
 
     tweet_cols = ["id", "user_id", "text", "created_at", "reply_count", "retweet_count", "like_count", "view_count", "parent_tweet_id"]
-    tweets = [dict(zip(tweet_cols, r)) for r in own] + [dict(zip(tweet_cols, r)) for r in replies]
+    own_dicts = [dict(zip(tweet_cols, r)) for r in own]
+    reply_dicts = [dict(zip(tweet_cols, r)) for r in replies]
 
     replier_ids = {r[1] for r in replies}
     nodes: dict[str, dict] = {username: {"id": username, "label": fullname, "followers": followers, "following": following}}
@@ -86,6 +87,16 @@ async def extract_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             tuple(replier_ids)
         )
         reply_user_map = {uid: uname for uid, uname in cur.fetchall()}
+
+    for d in own_dicts:
+        d["source"] = username
+        d["target"] = ""
+    for d in reply_dicts:
+        d["source"] = reply_user_map.get(d["user_id"], "")
+        d["target"] = username
+
+    tweet_cols = tweet_cols + ["source", "target"]
+    tweets = own_dicts + reply_dicts
 
     edges = [
         {"source": reply_user_map[r[1]], "target": username, "tweet_id": r[8], "reply_id": r[0], "type": "reply"}
@@ -111,12 +122,12 @@ async def extract_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     )
 
     insights = (
-        f"*Cluster insights for @{username}*\n\n"
-        f"Tweets scraped: {len(own)}\n"
-        f"Unique repliers: {len(nodes) - 1}\n"
-        f"Total replies: {len(replies)}\n\n"
-        f"Top repliers:\n{top5_str}\n\n"
-        f"Most replied tweet:\n{most_replied_str}"
+        f"*Aperçu du cluster pour @{username}*\n\n"
+        f"Tweets extraits : {len(own)}\n"
+        f"Répondeurs uniques : {len(nodes) - 1}\n"
+        f"Total des réponses : {len(replies)}\n\n"
+        f"Top répondeurs :\n{top5_str}\n\n"
+        f"Tweet le plus commenté :\n{most_replied_str}"
     )
 
     for fname in ["tweets.csv", "users.csv", "graph.gexf"]:
@@ -137,16 +148,16 @@ async def insight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     users, tweets, replies = cur.fetchone()
     await update.message.reply_text(
-        f"*Database stats*\n\nUsers: {users}\nTweets: {tweets}\nReplies: {replies}",
+        f"*Statistiques de la base de données*\n\nUtilisateurs : {users}\nTweets : {tweets}\nRéponses : {replies}",
         parse_mode="Markdown",
     )
 
 
 async def post_init(app: Application) -> None:
     await app.bot.set_my_commands([
-        BotCommand("start", "About this bot"),
-        BotCommand("extract", "Extract data for a Twitter user"),
-        BotCommand("insight", "Show database stats"),
+        BotCommand("start", "À propos de ce bot"),
+        BotCommand("extract", "Extraire les données d'un utilisateur Twitter"),
+        BotCommand("insight", "Afficher les statistiques de la base de données"),
     ])
 
 

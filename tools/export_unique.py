@@ -43,10 +43,8 @@ def run(conn, username: str) -> None:
     replies = cur.fetchall() if own_ids else []
 
     tweet_cols = ["id", "user_id", "text", "created_at", "reply_count", "retweet_count", "like_count", "view_count", "parent_tweet_id"]
-    def to_tweet(r):
-        return dict(zip(tweet_cols, r))
-
-    tweets = [to_tweet(r) for r in own] + [to_tweet(r) for r in replies]
+    own_dicts = [dict(zip(tweet_cols, r)) for r in own]
+    reply_dicts = [dict(zip(tweet_cols, r)) for r in replies]
 
     # nodes: target + repliers
     replier_ids = {r[1] for r in replies}
@@ -67,6 +65,16 @@ def run(conn, username: str) -> None:
             tuple(replier_ids)
         )
         reply_user_map = {uid: uname for uid, uname in cur.fetchall()}
+
+    for d in own_dicts:
+        d["source"] = username
+        d["target"] = ""
+    for d in reply_dicts:
+        d["source"] = reply_user_map.get(d["user_id"], "")
+        d["target"] = username
+
+    tweet_cols = tweet_cols + ["source", "target"]
+    tweets = own_dicts + reply_dicts
 
     edges = [
         {"source": reply_user_map[r[1]], "target": username,
