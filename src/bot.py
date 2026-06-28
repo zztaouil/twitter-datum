@@ -26,8 +26,8 @@ WAIT_WF_USERNAME = 1
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     targets = [
-        "fm6oaorg", "Saudi_Moia", "diyanet_en",
-        "h\_bennajeh", "Ali_AlQaradaghi", "realDonaldTrump",
+        "fm6oaorg", "Saudi\_Moia", "diyanet\_en",
+        "h\_bennajeh", "Ali\_AlQaradaghi", "realDonaldTrump",
     ]
     targets_str = "\n".join(f"• @{t}" for t in targets)
     await update.message.reply_text(
