@@ -43,3 +43,12 @@ For large scale extraction.
 - we have to study how rate limits works.
 - how much do our workflows cost
 - setup db to persist data and enrich it gradually
+
+
+25% pourcentage pour que la donées soit valide
+
+---
+
+- most used words ; communication
+- topic moddeling + co occurence ; theme
+- sentiment analysis ; impact
