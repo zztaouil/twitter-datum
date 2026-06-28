@@ -21,9 +21,16 @@ WAIT_USERNAME = 0
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    targets = [
+        "fm6oaorg", "Saudi_Moia", "diyanet_en",
+        "h_bennajeh", "Ali_AlQaradaghi", "realDonaldTrump",
+    ]
+    targets_str = "\n".join(f"• @{t}" for t in targets)
     await update.message.reply_text(
         "*Twitter Datum Bot*\n\n"
         "Explorez les réseaux de réponses extraits de Twitter.\n\n"
+        "*Cibles actuelles :*\n"
+        f"{targets_str}\n\n"
         "/extract — exporter les données et aperçus pour un utilisateur\n"
         "/insight — aperçu de la base de données (utilisateurs, tweets, réponses)",
         parse_mode="Markdown",
