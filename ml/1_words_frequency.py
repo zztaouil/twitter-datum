@@ -22,6 +22,21 @@ STOPWORDS = {
 }
 
 
+def word_frequency(conn, username: str, top_n: int = 30) -> list[tuple[str, int]]:
+    rows = conn.execute(
+        "SELECT t.text FROM tweets t JOIN users u ON t.user_id = u.id WHERE u.username = ? COLLATE NOCASE",
+        (username,),
+    ).fetchall()
+    if not rows:
+        return []
+    words = [
+        w for text in rows
+        for w in re.findall(r'\b\w+\b', text[0].lower())
+        if w not in STOPWORDS and not w.isdigit() and len(w) > 1
+    ]
+    return Counter(words).most_common(top_n)
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: python ml/1_words_frequency.py <username> [top_n=30]")
@@ -31,24 +46,15 @@ def main():
     top_n = int(sys.argv[2]) if len(sys.argv) > 2 else 30
 
     conn = sqlite3.connect("data.db")
-    rows = conn.execute(
-        "SELECT t.text FROM tweets t JOIN users u ON t.user_id = u.id WHERE u.username = ? COLLATE NOCASE",
-        (username,),
-    ).fetchall()
+    results = word_frequency(conn, username, top_n)
     conn.close()
 
-    if not rows:
+    if not results:
         print(f"no tweets found for @{username}")
         sys.exit(0)
 
-    words = [
-        w for text in rows
-        for w in re.findall(r'\b\w+\b', text[0].lower())
-        if w not in STOPWORDS and not w.isdigit() and len(w) > 1
-    ]
-
-    print(f"@{username} — top {top_n} words ({len(rows)} tweets)\n")
-    for rank, (word, count) in enumerate(Counter(words).most_common(top_n), 1):
+    print(f"@{username} — top {top_n} words\n")
+    for rank, (word, count) in enumerate(results, 1):
         print(f"  {rank:>3}. {word:<30} {count}")
 
 

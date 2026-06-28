@@ -50,5 +50,5 @@ For large scale extraction.
 ---
 
 - most used words ; communication
-- topic moddeling + co occurence ; theme
+- topic moddeling + co occurence ; theme 
 - sentiment analysis ; impact

@@ -1,7 +1,10 @@
+import importlib
 import logging
 import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_wf = importlib.import_module("ml.1_words_frequency")
+word_frequency = _wf.word_frequency
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,6 +21,7 @@ from telegram.ext import (
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
 
 WAIT_USERNAME = 0
+WAIT_WF_USERNAME = 1
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -160,11 +164,32 @@ async def insight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def wf_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("Entrez le nom d'utilisateur Twitter :")
+    return WAIT_WF_USERNAME
+
+
+async def wf_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    username = update.message.text.strip().lstrip("@")
+    conn = context.bot_data["conn"]
+    results = word_frequency(conn, username, top_n=20)
+    if not results:
+        await update.message.reply_text(f"Aucun tweet trouvé pour @{username}.")
+        return ConversationHandler.END
+    lines = "\n".join(f"{r:>3}. {w:<25} {c}" for r, (w, c) in enumerate(results, 1))
+    await update.message.reply_text(
+        f"*@{username} — mots les plus fréquents*\n\n```\n{lines}\n```",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
 async def post_init(app: Application) -> None:
     await app.bot.set_my_commands([
         BotCommand("start", "À propos de ce bot"),
         BotCommand("extract", "Extraire les données d'un utilisateur Twitter"),
         BotCommand("insight", "Afficher les statistiques de la base de données"),
+        BotCommand("1_word_frequency", "Mots les plus fréquents pour un utilisateur"),
     ])
 
 
@@ -181,8 +206,14 @@ def main() -> None:
         states={WAIT_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, extract_run)]},
         fallbacks=[],
     )
+    wf_conv = ConversationHandler(
+        entry_points=[CommandHandler("1_word_frequency", wf_start)],
+        states={WAIT_WF_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, wf_run)]},
+        fallbacks=[],
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
+    app.add_handler(wf_conv)
     app.add_handler(CommandHandler("insight", insight))
     app.run_polling()
 
