@@ -91,7 +91,7 @@ class Session:
 class TwitterClient:
     def __init__(self, auth_token: str, ct0: str, username: str = "", id: str = ""):
         self._pool = [Session(username=username, id=id, auth_token=auth_token, ct0=ct0)]
-        self._http = httpx.Client(follow_redirects=True)
+        self._http = httpx.Client(follow_redirects=True, timeout=30.0)
 
     @classmethod
     def from_file(cls, path: str = "sessions.jsonl") -> "TwitterClient":
@@ -113,7 +113,7 @@ class TwitterClient:
             raise ValueError(f"No cookie sessions in {path}")
         client = cls.__new__(cls)
         client._pool = sessions
-        client._http = httpx.Client(follow_redirects=True)
+        client._http = httpx.Client(follow_redirects=True, timeout=30.0)
         return client
 
     def _pick_session(self, endpoint: str) -> Session:
