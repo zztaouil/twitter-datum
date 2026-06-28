@@ -27,7 +27,7 @@ WAIT_WF_USERNAME = 1
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     targets = [
         "fm6oaorg", "Saudi_Moia", "diyanet_en",
-        "h_bennajeh", "Ali_AlQaradaghi", "realDonaldTrump",
+        "h\_bennajeh", "Ali_AlQaradaghi", "realDonaldTrump",
     ]
     targets_str = "\n".join(f"• @{t}" for t in targets)
     await update.message.reply_text(
@@ -36,7 +36,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "*Cibles actuelles :*\n"
         f"{targets_str}\n\n"
         "/extract — exporter les données et aperçus pour un utilisateur\n"
-        "/insight — aperçu de la base de données (utilisateurs, tweets, réponses)",
+        "/insight — aperçu de la base de données (utilisateurs, tweets, réponses)\n"
+        "/1\\_word\\_frequency — mots les plus fréquents pour un utilisateur",
         parse_mode="Markdown",
     )
 
