@@ -119,7 +119,7 @@ async def extract_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         f"Most replied tweet:\n{most_replied_str}"
     )
 
-    for fname in ["tweets.csv", "nodes.csv", "graph.gexf"]:
+    for fname in ["tweets.csv", "users.csv", "graph.gexf"]:
         with open(f"{out_dir}/{fname}", "rb") as f:
             await context.bot.send_document(update.effective_chat.id, f, filename=fname)
 
