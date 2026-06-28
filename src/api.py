@@ -6,6 +6,7 @@ from .models import Tweet, User
 
 _ENDPOINT_USER = "IGgvgiOx4QZndDHuD3x9TQ/UserByScreenName"
 _ENDPOINT_TWEETS = "LE3eTyeqhBh2g-fX85O2eQ/UserWithProfileTweetsQueryV2"
+_ENDPOINT_TWEETS_AND_REPLIES = "AcYHjc_YAx-9_rKWdMsKvA/UserWithProfileTweetsAndRepliesQueryV2"
 _ENDPOINT_TWEET = "OZMbEnEa96AN8Pq6HyTWdw/ConversationTimeline"
 _ENDPOINT_SEARCH = "-TFXKoMnMTKdEXcCn-eahw/SearchTimeline"
 
@@ -139,6 +140,28 @@ def get_tweets(
     if cursor:
         variables["cursor"] = cursor
     data = client._fetch(_ENDPOINT_TWEETS, variables, field_toggles=_TOGGLES_TWEETS)
+    instructions = (
+        data.get("data", {})
+        .get("user_result", {})
+        .get("result", {})
+        .get("timeline_response", {})
+        .get("timeline", {})
+        .get("instructions", [])
+    )
+    return _walk_instructions(instructions, max_count=max_count)
+
+
+def get_tweets_and_replies(
+    client: TwitterClient,
+    user_id: str,
+    cursor: str | None = None,
+    count: int = 20,
+    max_count: int = 20,
+) -> tuple[list[Tweet], str]:
+    variables: dict = {"rest_id": user_id, "count": count}
+    if cursor:
+        variables["cursor"] = cursor
+    data = client._fetch(_ENDPOINT_TWEETS_AND_REPLIES, variables, field_toggles=_TOGGLES_TWEETS)
     instructions = (
         data.get("data", {})
         .get("user_result", {})
