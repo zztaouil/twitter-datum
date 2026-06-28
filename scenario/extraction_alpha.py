@@ -17,12 +17,12 @@ from src import TwitterClient, get_profile, get_replies, get_tweets
 import src.db as db
 
 TARGETS = [
+    "realDonaldTrump",
     "fm6oaorg",
     "Saudi_Moia",
     "diyanet_en",
     "h_bennajeh",
     "Ali_AlQaradaghi",
-    "realDonaldTrump",
 ]
 N = 2000
 Y = 1000
