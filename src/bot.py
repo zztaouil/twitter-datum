@@ -95,7 +95,7 @@ async def extract_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     out_dir = f"out/{username}"
     os.makedirs(out_dir, exist_ok=True)
     write_csv(f"{out_dir}/tweets.csv", tweet_cols, tweets)
-    write_csv(f"{out_dir}/nodes.csv", ["id", "label", "followers", "following"], nodes.values())
+    write_csv(f"{out_dir}/users.csv", ["id", "label", "followers", "following"], nodes.values())
     write_gexf(f"{out_dir}/graph.gexf", nodes, edges)
 
     # top 5 repliers by reply count

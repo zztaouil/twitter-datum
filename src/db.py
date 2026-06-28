@@ -1,6 +1,6 @@
 import sqlite3
 
-from .types import User, Tweet
+from .models import User, Tweet
 
 
 def init_db(path: str = "data.db") -> sqlite3.Connection:

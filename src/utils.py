@@ -2,7 +2,7 @@ import csv
 import math
 import xml.etree.ElementTree as ET
 
-from .types import User
+from .models import User
 
 
 def write_csv(path, fieldnames, rows):

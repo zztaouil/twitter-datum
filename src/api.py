@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from .client import TwitterClient
-from .types import Tweet, User
+from .models import Tweet, User
 
 _ENDPOINT_USER = "IGgvgiOx4QZndDHuD3x9TQ/UserByScreenName"
 _ENDPOINT_TWEETS = "LE3eTyeqhBh2g-fX85O2eQ/UserWithProfileTweetsQueryV2"

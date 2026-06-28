@@ -78,7 +78,7 @@ def run(conn, username: str) -> None:
     os.makedirs(out_dir, exist_ok=True)
 
     write_csv(f"{out_dir}/tweets.csv", tweet_cols, tweets)
-    write_csv(f"{out_dir}/nodes.csv", ["id", "label", "followers", "following"], nodes.values())
+    write_csv(f"{out_dir}/users.csv", ["id", "label", "followers", "following"], nodes.values())
     write_gexf(f"{out_dir}/graph.gexf", nodes, edges)
 
     n_replies = sum(1 for t in tweets if t["parent_tweet_id"])
