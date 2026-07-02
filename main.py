@@ -5,11 +5,44 @@ from src import TwitterClient, get_profile, get_tweets, get_replies
 TARGET = "realDonaldTrump"
 TARGETS = [
     "fm6oaorg",
-    "Saudi_Moia",
-    "diyanet_en",
-    "h_bennajeh",
-    "Ali_AlQaradaghi",
-    "realDonaldTrump",
+    "MmedHamdaoui",
+    "osekguub6096Gwf",
+    "habousmaroc",
+    "MarocDiplo_AR",
+    "nosraorg",
+    "USAbilAraby",
+    "AIPACofficial",
+    "TuckerCarlson",
+    "SecRubio",
+    "WhiteHouse",
+    "CUFI",
+    "TheIRD",
+    "StateDept",
+    "USIPorg",
+    "Franklin_Graham",
+    "SpeakerJohnson",
+    "GovMikeHuckabee",
+    "RTErdogan",
+    "DiyanetDijital",
+    "Tika_Turkiye",
+    "mfa_russia",
+    "KremlinRussia_E",
+    "patriarchia_ru",
+    "mospat_ru",
+    "ar_khamenei",
+    "IRIMFA_EN",
+    "netanyahu",
+    "IsraelMFA",
+    "IsraelinUSA",
+    "EdyCohen",
+    "IsraeliPM",
+    "IDF",
+    "itamarbengvir",
+    "bezalelsm",
+    "Pontifex_ar",
+    "vaticannews_fr",
+    "AlAzhar",
+    "alimamaltayeb",
 ]
 
 
@@ -23,16 +56,14 @@ def main():
         db.save_user(conn, target_profile)
 
         tweets, _ = get_tweets(client, target_profile.id, max_count=100)
-        non_rt = [t for t in tweets if not t.text.startswith("RT ")]
 
-        for tweet in non_rt:
+        for tweet in tweets:
             db.save_tweet(conn, tweet)
             replies, _ = get_replies(client, tweet.id, max_count=200)
             for reply in replies:
                 db.save_tweet(conn, reply, parent_tweet_id=tweet.id)
 
     conn.commit()
-    # run_gephi_scenario(conn)
     client.rate_limit_summary()
 
 

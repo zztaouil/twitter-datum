@@ -110,7 +110,7 @@ def run_target(client, conn, target):
     while len(collected) < N and not _stop:
         tweets, cursor = get_tweets(client, user_id, cursor=cursor, max_count=0)
         for t in tweets:
-            if not t.text.startswith("RT ") and t.created_at < oldest_in_db:
+            if t.created_at < oldest_in_db:
                 collected.append(t)
         if not cursor or not tweets:
             break

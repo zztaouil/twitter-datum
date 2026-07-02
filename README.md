@@ -77,14 +77,12 @@ For large scale extraction.
 - we have to study how rate limits works.
 - how much do our workflows cost
 - setup db to persist data and enrich it gradually
+- Re explore the data extraction of one twitter account
 
-
-25% pourcentage pour que la donées soit valide
+25% pourcentage pour que la donées soit valide/representative
 
 ---
 
 - most used words ; communication
 - topic moddeling + co occurence ; theme 
 - sentiment analysis ; impact
-
----
