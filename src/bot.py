@@ -24,12 +24,27 @@ WAIT_USERNAME = 0
 WAIT_WF_USERNAME = 1
 
 
+def _esc(name: str) -> str:
+    return name.replace("_", "\_")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    targets = [
-        "fm6oaorg", "Saudi\_Moia", "diyanet\_en",
-        "h\_bennajeh", "Ali\_AlQaradaghi", "realDonaldTrump",
-    ]
-    targets_str = "\n".join(f"• @{t}" for t in targets)
+    targets_by_country = {
+        "Maroc": ["fm6oaorg", "MmedHamdaoui", "osekguub6096Gwf", "habousmaroc", "MarocDiplo_AR", "nosraorg"],
+        "USA": ["USAbilAraby", "AIPACofficial", "TuckerCarlson", "SecRubio", "WhiteHouse", "CUFI", "TheIRD",
+                "StateDept", "USIPorg", "Franklin_Graham", "SpeakerJohnson", "GovMikeHuckabee", "realDonaldTrump"],
+        "Turquie": ["RTErdogan", "DiyanetDijital", "Tika_Turkiye", "diyanet_en"],
+        "Russie": ["mfa_russia", "KremlinRussia_E", "patriarchia_ru", "mospat_ru"],
+        "Iran": ["ar_khamenei", "IRIMFA_EN"],
+        "Israel": ["netanyahu", "IsraelMFA", "IsraelinUSA", "EdyCohen", "IsraeliPM", "IDF", "itamarbengvir", "bezalelsm"],
+        "Vatican": ["Pontifex_ar", "vaticannews_fr"],
+        "Al-Azhar": ["AlAzhar", "alimamaltayeb"],
+        "Autres": ["Saudi_Moia", "h_bennajeh", "Ali_AlQaradaghi"],
+    }
+    targets_str = "\n\n".join(
+        "*{}*\n".format(country) + "\n".join(f"• @{_esc(t)}" for t in targets)
+        for country, targets in targets_by_country.items()
+    )
     await update.message.reply_text(
         "*Twitter Datum Bot*\n\n"
         "Explorez les réseaux de réponses extraits de Twitter.\n\n"
