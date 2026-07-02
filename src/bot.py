@@ -5,6 +5,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 _wf = importlib.import_module("ml.1_words_frequency")
 word_frequency = _wf.word_frequency
+_tm = importlib.import_module("ml.2_topics_modeling")
+topics_for_target = _tm.topics_for_target
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -22,6 +24,7 @@ logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=loggin
 
 WAIT_USERNAME = 0
 WAIT_WF_USERNAME = 1
+WAIT_TM_USERNAME = 2
 
 
 def _esc(name: str) -> str:
@@ -52,7 +55,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"{targets_str}\n\n"
         "/extract — exporter les données et aperçus pour un utilisateur\n"
         "/insight — aperçu de la base de données (utilisateurs, tweets, réponses)\n"
-        "/1\_word\_frequency — mots les plus fréquents pour un utilisateur",
+        "/1\_word\_frequency — mots les plus fréquents pour un utilisateur\n"
+        "/2\_topics\_modeling — sujets abordés par un utilisateur (arabe/anglais/français)",
         parse_mode="Markdown",
     )
 
@@ -200,12 +204,51 @@ async def wf_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+async def tm_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("Entrez le nom d'utilisateur Twitter :")
+    return WAIT_TM_USERNAME
+
+
+async def tm_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    username = update.message.text.strip().lstrip("@")
+    conn = context.bot_data["conn"]
+    await update.message.reply_text("Calcul en cours…")
+    result = topics_for_target(conn, username, n_topics=5)
+
+    if result.n_docs == 0:
+        await update.message.reply_text(f"Aucun tweet trouvé pour @{username}.")
+        return ConversationHandler.END
+    if result.skipped_reason:
+        await update.message.reply_text(f"@{username} : {result.skipped_reason}")
+        return ConversationHandler.END
+
+    blocks = []
+    for topic in result.topics:
+        breakdown = " / ".join(f"{pct:.0%} {lang.upper()}" for lang, pct in topic.lang_breakdown.items())
+        lines = [f"Sujet {topic.id} ({topic.size} tweets — {breakdown}): {', '.join(topic.keywords)}"]
+        for ex in topic.examples:
+            snippet = ex if len(ex) <= 100 else ex[:97] + "..."
+            lines.append(f"      ex. \"{snippet}\"")
+        blocks.append("\n".join(lines))
+
+    body = "\n\n".join(blocks)
+    if len(body) > 3800:
+        body = body[:3800] + "\n… (tronqué)"
+
+    await update.message.reply_text(
+        f"*@{username} — sujets par langue* ({result.n_docs} tweets, {result.n_outliers} non classés)\n\n```\n{body}\n```",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
 async def post_init(app: Application) -> None:
     await app.bot.set_my_commands([
         BotCommand("start", "À propos de ce bot"),
         BotCommand("extract", "Extraire les données d'un utilisateur Twitter"),
         BotCommand("insight", "Afficher les statistiques de la base de données"),
         BotCommand("1_word_frequency", "Mots les plus fréquents pour un utilisateur"),
+        BotCommand("2_topics_modeling", "Sujets abordés par un utilisateur (AR/EN/FR)"),
     ])
 
 
@@ -227,9 +270,15 @@ def main() -> None:
         states={WAIT_WF_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, wf_run)]},
         fallbacks=[],
     )
+    tm_conv = ConversationHandler(
+        entry_points=[CommandHandler("2_topics_modeling", tm_start)],
+        states={WAIT_TM_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, tm_run)]},
+        fallbacks=[],
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
     app.add_handler(wf_conv)
+    app.add_handler(tm_conv)
     app.add_handler(CommandHandler("insight", insight))
     app.run_polling()
 

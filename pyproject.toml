@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "bertopic>=0.17.4",
     "curl-cffi>=0.15.0",
     "httpx>=0.28.1",
+    "langdetect>=1.0.9",
     "nodriver>=0.50.3",
     "pyotp>=2.10.0",
     "python-dotenv>=1.2.2",
     "python-telegram-bot>=22.8",
+    "sentence-transformers>=5.6.0",
 ]
