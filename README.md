@@ -1,12 +1,46 @@
 ```
-TARGETS = [
+accounts = [
     "fm6oaorg",
-    "Saudi_Moia",
-    "diyanet_en",
-    "h_bennajeh",
-    "Ali_AlQaradaghi",
-    "realDonaldTrump",
+    "MmedHamdaoui",
+    "osekguub6096Gwf",
+    "habousmaroc",
+    "MarocDiplo_AR",
+    "nosraorg",
+    "USAbilAraby",
+    "AIPACofficial",
+    "TuckerCarlson",
+    "SecRubio",
+    "WhiteHouse",
+    "CUFI",
+    "TheIRD",
+    "StateDept",
+    "USIPorg",
+    "Franklin_Graham",
+    "SpeakerJohnson",
+    "GovMikeHuckabee",
+    "RTErdogan",
+    "DiyanetDijital",
+    "Tika_Turkiye",
+    "mfa_russia",
+    "KremlinRussia_E",
+    "patriarchia_ru",
+    "mospat_ru",
+    "ar_khamenei",
+    "IRIMFA_EN",
+    "netanyahu",
+    "IsraelMFA",
+    "IsraelinUSA",
+    "EdyCohen",
+    "IsraeliPM",
+    "IDF",
+    "itamarbengvir",
+    "bezalelsm",
+    "Pontifex_ar",
+    "vaticannews_fr",
+    "AlAzhar",
+    "alimamaltayeb",
 ]
+
 ```
 
 il faut extraire des données qui permettent de cartographier :
@@ -52,3 +86,5 @@ For large scale extraction.
 - most used words ; communication
 - topic moddeling + co occurence ; theme 
 - sentiment analysis ; impact
+
+---
