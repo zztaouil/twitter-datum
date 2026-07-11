@@ -152,6 +152,7 @@ Directory structure:
     │   ├── test_followers.py
     │   ├── test_profile.py
     │   ├── test_quote.py
+    │   ├── test_reply_sort.py
     │   ├── test_search.py
     │   ├── test_security.py
     │   ├── test_space.py
@@ -2272,8 +2273,8 @@ proc userTweetsUrl(id: string; cursor: string): ApiReq =
 proc userTweetsAndRepliesUrl(id: string; cursor: string): ApiReq =
   return apiReq(graphUserTweetsAndRepliesV2, restIdVars % [id, cursor, "20"], userTweetsFieldToggles, skipTid=true)
 
-proc tweetDetailUrl(id: string; cursor: string): ApiReq =
-  return apiReq(graphTweet, tweetVars % [id, cursor])
+proc tweetDetailUrl(id, cursor: string; mode = Relevance): ApiReq =
+  return apiReq(graphTweet, tweetVars % [id, cursor, $mode])
   # let cookieVars = tweetDetailVars % [id, cursor]
   # result = ApiReq(
   #   cookie: apiUrl(graphTweetDetail, cookieVars, tweetDetailFieldToggles),
@@ -2467,21 +2468,21 @@ proc getGraphTweetResult*(id: string): Future[Tweet] {.async.} =
     js = await fetch(url)
   result = parseGraphTweetResult(js)
 
-proc getGraphTweet(id: string; after=""): Future[Conversation] {.async.} =
+proc getGraphTweet(id: string; after=""; mode = Relevance): Future[Conversation] {.async.} =
   if id.len == 0: return
   let
     cursor = cursorParam(after)
-    js = await fetch(tweetDetailUrl(id, cursor))
+    js = await fetch(tweetDetailUrl(id, cursor, mode))
   result = parseGraphConversation(js, id)
 
-proc getReplies*(id, after: string): Future[Result[Chain]] {.async.} =
-  result = (await getGraphTweet(id, after)).replies
+proc getReplies*(id, after: string; mode = Relevance): Future[Result[Chain]] {.async.} =
+  result = (await getGraphTweet(id, after, mode)).replies
   result.beginning = after.len == 0
 
-proc getTweet*(id: string; after=""): Future[Conversation] {.async.} =
-  result = await getGraphTweet(id)
+proc getTweet*(id: string; after=""; mode = Relevance): Future[Conversation] {.async.} =
+  result = await getGraphTweet(id, mode=mode)
   if after.len > 0:
-    result.replies = await getReplies(id, after)
+    result.replies = await getReplies(id, after, mode)
 
 proc getGraphEditHistory*(id: string): Future[EditHistory] {.async.} =
   if id.len == 0: return
@@ -2500,12 +2501,19 @@ proc getGraphTweetSearch*(query: Query; after=""): Future[Timeline] {.async.} =
   if q.len == 0 or q == emptyQuery:
     return Timeline(query: query, beginning: true)
 
+  let product =
+    case query.kind
+    of top: "Top"
+    # profile media feeds (RSS, multi-user timelines) must stay chronological
+    of media: (if query.fromUser.len == 0: "Media" else: "Latest")
+    else: "Latest"
+
   var
     variables = %*{
       "rawQuery": q,
       "count": 20,
       "querySource": "typed_query",
-      "product": "Latest",
+      "product": product,
       "withGrokTranslatedBio":true,
       "withQuickPromoteEligibilityTweetFields":false
     }
@@ -2520,32 +2528,39 @@ proc getGraphTweetSearch*(query: Query; after=""): Future[Timeline] {.async.} =
 
   # when no more items are available the API just returns the last page in
   # full. this detects that and clears the page instead.
-  if after.len > 0 and result.bottom.len > 0 and maxId.len == 0 and
-     after[0..<64] == result.bottom[0..<64]:
+  let prefix = min(64, min(after.len, result.bottom.len))
+  if prefix > 0 and maxId.len == 0 and
+     after[0..<prefix] == result.bottom[0..<prefix]:
     result.content.setLen(0)
 
-proc getGraphUserSearch*(query: Query; after=""): Future[Result[User]] {.async.} =
+proc getGraphProductSearch[T](query: Query; product: string;
+                              after=""): Future[Result[T]] {.async.} =
   if query.text.len == 0:
-    return Result[User](query: query, beginning: true)
+    return Result[T](query: query, beginning: true)
 
   var
     variables = %*{
       "rawQuery": query.text,
       "count": 20,
       "querySource": "typed_query",
-      "product": "People",
+      "product": product,
       "withGrokTranslatedBio":true,
       "withQuickPromoteEligibilityTweetFields":false
     }
   if after.len > 0:
     variables["cursor"] = % after
-    result.beginning = false
 
-  let 
+  let
     url = apiReq(graphSearchTimeline, $variables)
     js = await fetch(url)
-  result = parseGraphSearch[User](js, after)
+  result = parseGraphSearch[T](js, after)
   result.query = query
+
+proc getGraphUserSearch*(query: Query; after=""): Future[Result[User]] =
+  getGraphProductSearch[User](query, "People", after)
+
+proc getGraphListSearch*(query: Query; after=""): Future[Result[ListSearchResult]] =
+  getGraphProductSearch[ListSearchResult](query, "Lists", after)
 
 proc getPhotoRail*(id: string): Future[PhotoRail] {.async.} =
   if id.len == 0: return
@@ -3220,6 +3235,7 @@ const
   tweetVars* = """{
   "postId": "$1",
   $2
+  "ranking_mode": "$3",
   "includeHasBirdwatchNotes": false,
   "includePromotedContent": false,
   "withBirdwatchNotes": true,
@@ -3989,6 +4005,20 @@ proc parseGraphCommunity*(js: JsonNode): Community =
     if tag.len > 0:
       result.hashtags.add tag
 
+proc parseListObject(js: JsonNode; owner: User): List =
+  List(
+    id: js{"id_str"}.getStr,
+    name: js{"name"}.getStr,
+    username: owner.username,
+    userId: owner.id,
+    description: js{"description"}.getStr,
+    members: js{"member_count"}.getInt,
+    banner: select(
+      js{"custom_banner_media", "media_info", "original_img_url"},
+      js{"default_banner_media", "media_info", "original_img_url"}
+    ).getImageStr
+  )
+
 proc parseGraphList*(js: JsonNode): List =
   if js.isNull: return
 
@@ -3998,15 +4028,17 @@ proc parseGraphList*(js: JsonNode): List =
   if list.isNull:
     return
 
-  result = List(
-    id: list{"id_str"}.getStr,
-    name: list{"name"}.getStr,
-    username: list{"user_results", "result", "legacy", "screen_name"}.getStr,
-    userId: list{"user_results", "result", "rest_id"}.getStr,
-    description: list{"description"}.getStr,
-    members: list{"member_count"}.getInt,
-    banner: list{"custom_banner_media", "media_info", "original_img_url"}.getImageStr
+  result = parseListObject(list, parseGraphUser(list))
+
+proc parseGraphSearchList(js: JsonNode): ListSearchResult =
+  let owner = parseGraphUser(js)
+  result = ListSearchResult(
+    list: parseListObject(js, owner),
+    owner: owner,
+    followersContext: js{"followers_context"}.getStr
   )
+  for url in js{"facepile_urls"}:
+    result.facepiles.add url.getStr
 
 proc parsePoll(js: JsonNode): Poll =
   let vals = js{"binding_values"}
@@ -4591,20 +4623,31 @@ proc parseGraphEditHistory*(js: JsonNode; tweetId: string): EditHistory =
             if tweetResult.notNull:
               result.history.add parseGraphTweet(tweetResult)
 
+iterator extractTweetsFromModuleItems(items: JsonNode): Tweet =
+  for item in items:
+    with tweetResult, item.getTweetResult("item"):
+      let tweet = parseGraphTweet(tweetResult)
+      if not tweet.available:
+        tweet.id = item.getEntryId.getId
+      yield tweet
+
+iterator extractListsFromItems(items: JsonNode): ListSearchResult =
+  for item in items:
+    with listJs, item{"item", "itemContent", "list"}:
+      let r = parseGraphSearchList(listJs)
+      if r.list.id.len > 0:
+        yield r
+
 proc extractTweetsFromEntry*(e: JsonNode): seq[Tweet] =
   with tweetResult, getTweetResult(e):
-    var tweet = parseGraphTweet(tweetResult)
+    let tweet = parseGraphTweet(tweetResult)
     if not tweet.available:
       tweet.id = e.getEntryId.getId
     result.add tweet
     return
 
-  for item in e{"content", "items"}:
-    with tweetResult, item.getTweetResult("item"):
-      var tweet = parseGraphTweet(tweetResult)
-      if not tweet.available:
-        tweet.id = item.getEntryId.getId
-      result.add tweet
+  for tweet in extractTweetsFromModuleItems(e{"content", "items"}):
+    result.add tweet
 
 proc parseGraphTimeline*(js: JsonNode; after=""): Profile =
   result = Profile(tweets: Timeline(beginning: after.len == 0))
@@ -4619,12 +4662,8 @@ proc parseGraphTimeline*(js: JsonNode; after=""): Profile =
 
   for i in instructions:
     if i{"moduleItems"}.notNull:
-      for item in i{"moduleItems"}:
-        with tweetResult, item.getTweetResult("item"):
-          let tweet = parseGraphTweet(tweetResult)
-          if not tweet.available:
-            tweet.id = item.getEntryId.getId
-          result.tweets.content.add tweet
+      for tweet in extractTweetsFromModuleItems(i{"moduleItems"}):
+        result.tweets.content.add tweet
       continue
 
     if i{"entries"}.notNull:
@@ -4659,18 +4698,13 @@ proc parseGraphPhotoRail*(js: JsonNode): PhotoRail =
 
   for i in instructions:
     if i{"moduleItems"}.notNull:
-      for item in i{"moduleItems"}:
-        with tweetResult, item.getTweetResult("item"):
-          let t = parseGraphTweet(tweetResult)
-          if not t.available:
-            t.id = item.getEntryId.getId
+      for t in extractTweetsFromModuleItems(i{"moduleItems"}):
+        let photo = extractGalleryPhoto(t)
+        if photo.url.len > 0:
+          result.add photo
 
-          let photo = extractGalleryPhoto(t)
-          if photo.url.len > 0:
-            result.add photo
-
-          if result.len == 16:
-            return
+        if result.len == 16:
+          return
       continue
 
     if i.getTypeName != "TimelineAddEntries":
@@ -4687,7 +4721,7 @@ proc parseGraphPhotoRail*(js: JsonNode): PhotoRail =
           if result.len == 16:
             return
 
-proc parseGraphSearch*[T: User | Tweets](js: JsonNode; after=""): Result[T] =
+proc parseGraphSearch*[T: User | Tweets | ListSearchResult](js: JsonNode; after=""): Result[T] =
   result = Result[T](beginning: after.len == 0)
 
   let instructions = select(
@@ -4703,19 +4737,27 @@ proc parseGraphSearch*[T: User | Tweets](js: JsonNode; after=""): Result[T] =
       for e in instruction{"entries"}:
         let entryId = e.getEntryId
         when T is Tweets:
-          if entryId.startsWith("tweet"):
-            with tweetRes, getTweetResult(e):
-              let tweet = parseGraphTweet(tweetRes)
-              if not tweet.available:
-                tweet.id = entryId.getId
+          if entryId.startsWith("tweet") or entryId.startsWith("search-grid"):
+            for tweet in extractTweetsFromEntry(e):
               result.content.add tweet
         elif T is User:
           if entryId.startsWith("user"):
             with userRes, e{"content", "itemContent"}:
               result.content.add parseGraphUser(userRes)
+        elif T is ListSearchResult:
+          if entryId.startsWith("list-search"):
+            for list in extractListsFromItems(e{"content", "items"}):
+              result.content.add list
 
         if entryId.startsWith("cursor-bottom"):
           result.bottom = e{"content", "value"}.getStr
+    elif typ == "TimelineAddToModule":
+      when T is Tweets:
+        for tweet in extractTweetsFromModuleItems(instruction{"moduleItems"}):
+          result.content.add tweet
+      elif T is ListSearchResult:
+        for list in extractListsFromItems(instruction{"moduleItems"}):
+          result.content.add list
     elif typ == "TimelineReplaceEntry":
       if instruction{"entry_id_to_replace"}.getStr.startsWith("cursor-bottom"):
         result.bottom = instruction{"entry", "content", "value"}.getStr
@@ -4871,9 +4913,9 @@ proc getTimeFromMsStr*(js: JsonNode): DateTime =
 
 proc getId*(id: string): int64 {.inline.} =
   let start = id.rfind("-")
-  if start < 0:
-    return parseBiggestInt(id)
-  return parseBiggestInt(id[start + 1 ..< id.len])
+  try:
+    parseBiggestInt(if start < 0: id else: id[start + 1 ..< id.len])
+  except ValueError: 0'i64
 
 proc getId*(js: JsonNode): int64 {.inline.} =
   case js.kind
@@ -5533,7 +5575,7 @@ proc initQuery*(pms: Table[string, string]; name=""): Query =
 
 proc getMediaQuery*(name: string): Query =
   Query(
-    kind: media,
+    kind: QueryKind.media,
     filters: @["twimg", "native_video"],
     fromUser: @[name],
     sep: "OR"
@@ -5563,7 +5605,7 @@ proc genQueryParam*(query: Query; maxId=""): string =
     else:
       param &= ")"
 
-  if query.fromUser.len > 0 and query.kind in {posts, media}:
+  if query.fromUser.len > 0 and query.kind in {posts, QueryKind.media}:
     param &= " (filter:self_threads OR -filter:replies)"
 
   if "nativeretweets" notin query.excludes:
@@ -5603,7 +5645,9 @@ proc genQueryUrl*(query: Query): string =
   if query.view.len > 0:
     params.add "view=" & encodeUrl(query.view)
 
-  if query.kind in {tweets, users}:
+  # media doubles as the profile media tab, where f isn't part of the URL scheme
+  if query.kind in {tweets, users, lists, top} or
+     (query.kind == QueryKind.media and query.fromUser.len == 0):
     params.add &"f={query.kind}"
     if query.text.len > 0:
       params.add "q=" & encodeUrl(query.text)
@@ -5913,14 +5957,16 @@ var
 
 proc getPair(): Future[TidPair] {.async.} =
   if cachedPairs.len == 0 or int(epochTime()) - lastCached > ttlSec:
-    lastCached = int(epochTime())
-
     let client = newAsyncHttpClient()
     defer: client.close()
 
     let resp = await client.get(pairsUrl)
     if resp.status == $Http200:
       cachedPairs = parseTidPairs(await resp.body)
+      lastCached = int(epochTime())
+
+  if cachedPairs.len == 0:
+    raise newException(ValueError, "Failed to fetch x-client-transaction-id pairs")
 
   return sample(cachedPairs)
 
@@ -6139,7 +6185,10 @@ type
     variants*: seq[VideoVariant]
 
   QueryKind* = enum
-    posts, replies, media, users, tweets, userList, followers, following
+    posts, replies, media, users, tweets, userList, followers, following, lists, top
+
+  RankingMode* = enum
+    Relevance, Recency, Likes
 
   Query* = object
     kind*: QueryKind
@@ -6218,6 +6267,7 @@ type
     mediaIds*: seq[string]
     tweetId*: string
     markdown*: string
+    caption*: string
 
   ArticleMedia* = object
     kind*: string
@@ -6348,6 +6398,12 @@ type
     description*: string
     members*: int
     banner*: string
+
+  ListSearchResult* = object
+    list*: List
+    owner*: User
+    followersContext*: string
+    facepiles*: seq[string]
 
   CommunityRule* = object
     name*: string
@@ -6588,6 +6644,7 @@ proc parseGraphArticle*(json: string): Article =
     of "MEDIA":
       for mi in entry.value.data.mediaItems:
         entity.mediaIds.add mi.mediaId
+      entity.caption = entry.value.data.caption
     of "TWEET": entity.tweetId = entry.value.data.tweetId
     of "MARKDOWN": entity.markdown = entry.value.data.markdown
     else: discard
@@ -7126,6 +7183,7 @@ type
     mediaItems*: seq[tuple[mediaId: string]]
     tweetId*: string
     markdown*: string
+    caption*: string
 
   RawMediaEntity* = object
     mediaId*: string
@@ -8241,7 +8299,7 @@ proc createRssRouter*(cfg: Config) =
       let
         prefs = requestPrefs()
         query = initQuery(params(request))
-      if query.kind != tweets:
+      if query.kind notin {QueryKind.tweets, QueryKind.top, QueryKind.media}:
         resp Http400, showError("Only Tweet searches are allowed for RSS feeds.", cfg)
 
       let
@@ -8379,8 +8437,20 @@ proc createSearchRouter*(cfg: Config) =
 
       let
         prefs = requestPrefs()
-        query = initQuery(params(request))
         title = "Search" & (if q.len > 0: " (" & q & ")" else: "")
+
+      var query = initQuery(params(request))
+      # x.com URL compat: f=user and f=list map to our kind names
+      # (f=live already falls back to tweets/Latest; f=media matches natively)
+      if @"f" == "user":
+        query.kind = users
+      elif @"f" == "list":
+        query.kind = lists
+
+      # media searches support view modes, defaulting like /user/media
+      if query.kind == QueryKind.media and
+         query.view notin ["timeline", "grid", "gallery"]:
+        query.view = prefs.mediaView.toLowerAscii
 
       case query.kind
       of users:
@@ -8392,12 +8462,16 @@ proc createSearchRouter*(cfg: Config) =
         except InternalError:
           users = Result[User](beginning: true, query: query)
         resp renderMain(renderUserSearch(users, prefs), request, cfg, prefs, title)
-      of tweets:
+      of tweets, top, QueryKind.media:
         let
           tweets = await getGraphTweetSearch(query, getCursor())
           rss = if cfg.enableRSSSearch: "/search/rss?" & genQueryUrl(query) else: ""
         resp renderMain(renderTweetSearch(tweets, prefs, getPath()),
                         request, cfg, prefs, title, rss=rss)
+      of lists:
+        let listResults = await getGraphListSearch(query, getCursor())
+        resp renderMain(renderListSearch(listResults, prefs, getPath()),
+                        request, cfg, prefs, title)
       else:
         resp Http404, showError("Invalid search", cfg)
 
@@ -8480,16 +8554,18 @@ proc createStatusRouter*(cfg: Config) =
       if id.len > 19 or id.any(c => not c.isDigit):
         resp Http404, showError("Invalid tweet ID", cfg)
 
-      let prefs = requestPrefs()
+      let
+        prefs = requestPrefs()
+        sort = parseEnum[RankingMode](@"sort".toLowerAscii.capitalizeAscii, Relevance)
 
       # used for the infinite scroll feature
       if @"scroll".len > 0:
-        let replies = await getReplies(id, getCursor())
+        let replies = await getReplies(id, getCursor(), sort)
         if replies.content.len == 0:
           resp Http204
-        resp $renderReplies(replies, prefs, getPath())
+        resp $renderReplies(replies, prefs, getPath(), sort=sort)
 
-      let conv = await getTweet(id, getCursor())
+      let conv = await getTweet(id, getCursor(), sort)
 
       if conv == nil or conv.tweet == nil or conv.tweet.id == 0:
         var error = "Tweet not found"
@@ -8523,7 +8599,7 @@ proc createStatusRouter*(cfg: Config) =
         elif card.video.isSome():
           images = @[card.video.get().thumb]
 
-      let html = renderConversation(conv, prefs, getPath() & "#m")
+      let html = renderConversation(conv, prefs, getPath() & "#m", sort)
       resp renderMain(html, request, cfg, prefs, title, desc, ogTitle,
                       images=images, video=video)
 
@@ -8621,7 +8697,7 @@ proc fetchProfile*(after: string; query: Query; skipRail=false): Future[Profile]
 
   let
     rail =
-      skipIf(skipRail or query.kind == media, @[]):
+      skipIf(skipRail or query.kind == QueryKind.media, @[]):
         getCachedPhotoRail(userId)
 
     user = getCachedUser(name)
@@ -9009,6 +9085,12 @@ FILE: src/sass/_article.scss
       video {
         max-width: 100%;
         border-radius: 12px;
+      }
+
+      .article-media-caption {
+        color: var(--fg_faded);
+        font-size: 0.875rem;
+        margin-top: 6px;
       }
     }
 
@@ -10032,6 +10114,80 @@ FILE: src/sass/search.scss
   grid-column-gap: 10px;
 }
 
+.list-result {
+  display: flex;
+  align-items: flex-start;
+
+  .list-result-banner {
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+    margin-right: 10px;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: var(--darker_grey);
+    // stay above the tweet-link overlay's hover background
+    z-index: 1;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+
+  .list-result-body {
+    min-width: 0;
+    pointer-events: none;
+    z-index: 1;
+
+    a {
+      pointer-events: all;
+    }
+  }
+
+  .list-result-title {
+    align-items: baseline;
+  }
+
+  .list-members {
+    flex-shrink: 0;
+    margin-left: 0.3em;
+    color: var(--fg_faded);
+  }
+
+  .list-result-context {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 2px;
+    color: var(--fg_faded);
+
+    a {
+      color: var(--fg_dark);
+    }
+
+    a.fullname {
+      color: var(--fg_color);
+    }
+
+    .list-facepile {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      margin-right: 4px;
+    }
+  }
+
+  .list-result-description {
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: all;
+  }
+}
+
 .profile-tabs {
   @include search-resize(820px, 5);
   @include search-resize(715px, 4);
@@ -10053,6 +10209,26 @@ FILE: src/sass/timeline.scss
 
 .timeline-container {
   @include panel(100%, 600px);
+}
+
+.timeline-container.media-only {
+  max-width: none;
+  width: 100%;
+  padding: 0 10px;
+  box-sizing: border-box;
+
+  > .tab,
+  > .timeline-header {
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .timeline-container.media-only {
+    padding: 0;
+  }
 }
 
 .timeline > div:not(:first-child) {
@@ -12164,6 +12340,39 @@ FILE: src/sass/tweet/thread.scss
   margin-bottom: 10px;
 }
 
+.reply-sort {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background-color: var(--bg_panel);
+  font-size: 14px;
+}
+
+.reply-sort-label {
+  color: var(--fg_faded);
+  margin-right: 2px;
+}
+
+.reply-sort-option {
+  color: var(--tab);
+  font-weight: bold;
+  text-decoration: none;
+  border-bottom: 0.1rem solid transparent;
+
+  &:hover {
+    color: var(--fg_color);
+    text-decoration: none;
+  }
+
+  &.active {
+    color: var(--tab_selected);
+    border-bottom-color: var(--tab_selected);
+  }
+}
+
 .main-tweet,
 .replies,
 .edit-history > div {
@@ -12585,7 +12794,9 @@ proc renderAtomicParagraph(paragraph: ArticleParagraph; article: Article;
           video(src=getVidUrl(media.url), controls="")
         else:
           a(href=getOrigPicUrl(media.url), target="_blank"):
-            img(src=getSmallPic(media.url), alt="", loading="lazy")
+            img(src=getSmallPic(media.url), alt=entity.caption, loading="lazy")
+      if entity.caption.len > 0:
+        p(class="article-media-caption"): text entity.caption
   of "TWEET":
     let tweet = tweets.getOrDefault(
       try: parseBiggestInt(entity.tweetId)
@@ -13121,7 +13332,7 @@ proc renderHead*(prefs: Prefs; cfg: Config; req: Request; titleText=""; desc="";
   let opensearchUrl = getUrlPrefix(cfg) & "/opensearch"
 
   buildHtml(head):
-    link(rel="stylesheet", type="text/css", href="/css/style.css?v=44")
+    link(rel="stylesheet", type="text/css", href="/css/style.css?v=50")
     link(rel="stylesheet", type="text/css", href="/css/fontello.css?v=7")
 
     if theme.len > 0:
@@ -13459,7 +13670,7 @@ proc renderProtected*(username: string): VNode =
 proc renderProfile*(profile: var Profile; prefs: Prefs; path: string): VNode =
   profile.tweets.query.fromUser = @[profile.user.username]
   let
-    isGalleryView = profile.tweets.query.kind == media and
+    isGalleryView = profile.tweets.query.kind == QueryKind.media and
       profile.tweets.query.view == "gallery"
     viewClass = if isGalleryView: " media-only" else: ""
 
@@ -13979,28 +14190,45 @@ proc renderProfileTabs*(query: Query; username: string): VNode =
     li(class=query.getTabClass(tweets)):
       a(href=(link & "/search")): text "Search"
 
-proc renderMediaViewTabs*(query: Query; username: string): VNode =
+proc mediaViewUrl(query: Query; view: string): string =
+  var q = query
+  q.view = view
+  "?" & genQueryUrl(q)
+
+proc renderMediaViewTabs*(query: Query): VNode =
   let currentView = if query.view.len > 0: query.view else: "timeline"
-  let base = "/" & username & "/media?view="
   func cls(view: string): string =
     if currentView == view: "tab-item active" else: "tab-item"
   buildHtml(ul(class="tab media-view-tabs")):
     li(class=cls("timeline")):
-      a(href=(base & "timeline")): text "Timeline"
+      a(href=query.mediaViewUrl("timeline")): text "Timeline"
     li(class=cls("grid")):
-      a(href=(base & "grid")): text "Grid"
+      a(href=query.mediaViewUrl("grid")): text "Grid"
     li(class=cls("gallery")):
-      a(href=(base & "gallery")): text "Gallery"
+      a(href=query.mediaViewUrl("gallery")): text "Gallery"
 
 proc renderSearchTabs*(query: Query): VNode =
   var q = query
+  # the media view mode only applies to the Media tab
+  q.view = ""
   buildHtml(ul(class="tab")):
+    li(class=query.getTabClass(top)):
+      q.kind = top
+      a(href=("?" & genQueryUrl(q))): text "Top"
     li(class=query.getTabClass(tweets)):
       q.kind = tweets
-      a(href=("?" & genQueryUrl(q))): text "Tweets"
+      a(href=("?" & genQueryUrl(q))): text "Latest"
+    li(class=query.getTabClass(media)):
+      q.kind = media
+      q.view = query.view
+      a(href=("?" & genQueryUrl(q))): text "Media"
     li(class=query.getTabClass(users)):
       q.kind = users
+      q.view = ""
       a(href=("?" & genQueryUrl(q))): text "Users"
+    li(class=query.getTabClass(lists)):
+      q.kind = lists
+      a(href=("?" & genQueryUrl(q))): text "Lists"
 
 proc isPanelOpen(q: Query): bool =
   q.fromUser.len == 0 and (q.filters.len > 0 or q.excludes.len > 0 or
@@ -14011,7 +14239,7 @@ proc renderSearchPanel*(query: Query): VNode =
   let action = if user.len > 0: &"/{user}/search" else: "/search"
   buildHtml(form(`method`="get", action=action,
                  class="search-field", autocomplete="off")):
-    hiddenField("f", "tweets")
+    hiddenField("f", $query.kind)
     genInput("q", "", query.text, "Enter search...", class="pref-inline")
     button(`type`="submit"): icon "search"
 
@@ -14042,36 +14270,55 @@ proc renderSearchPanel*(query: Query): VNode =
 proc renderTweetSearch*(results: Timeline; prefs: Prefs; path: string;
                         pinned=none(Tweet)): VNode =
   let query = results.query
-  buildHtml(tdiv(class="timeline-container")):
+  let containerClass =
+    if query.fromUser.len == 0 and query.kind == QueryKind.media and
+       query.view == "gallery": "timeline-container media-only"
+    else: "timeline-container"
+  buildHtml(tdiv(class=containerClass)):
     if query.fromUser.len > 1:
       tdiv(class="timeline-header"):
         text query.fromUser.join(" | ")
 
     if query.fromUser.len > 0:
-      if query.kind != media or query.view != "gallery":
+      if query.kind != QueryKind.media or query.view != "gallery":
         renderProfileTabs(query, query.fromUser.join(","))
-      if query.kind == media and query.fromUser.len == 1:
-        renderMediaViewTabs(query, query.fromUser[0])
+      if query.kind == QueryKind.media and query.fromUser.len == 1:
+        renderMediaViewTabs(query)
 
-    if query.fromUser.len == 0 or query.kind == tweets:
+    if query.fromUser.len == 0 or query.kind == QueryKind.tweets:
       tdiv(class="timeline-header"):
         renderSearchPanel(query)
 
     if query.fromUser.len == 0:
       renderSearchTabs(query)
+      if query.kind == QueryKind.media:
+        renderMediaViewTabs(query)
 
     renderTimelineTweets(results, prefs, path, pinned)
+
+proc renderSearchForm(kind, placeholder, value: string): VNode =
+  buildHtml(form(`method`="get", action="/search",
+                 class="search-field", autocomplete="off")):
+    hiddenField("f", kind)
+    genInput("q", "", value, placeholder, class="pref-inline")
+    button(`type`="submit"): icon "search"
 
 proc renderUserSearch*(results: Result[User]; prefs: Prefs): VNode =
   buildHtml(tdiv(class="timeline-container")):
     tdiv(class="timeline-header"):
-      form(`method`="get", action="/search", class="search-field", autocomplete="off"):
-        hiddenField("f", "users")
-        genInput("q", "", results.query.text, "Enter username...", class="pref-inline")
-        button(`type`="submit"): icon "search"
+      renderSearchForm("users", "Enter username...", results.query.text)
 
     renderSearchTabs(results.query)
     renderTimelineUsers(results, prefs)
+
+proc renderListSearch*(results: Result[ListSearchResult]; prefs: Prefs;
+                       path: string): VNode =
+  buildHtml(tdiv(class="timeline-container")):
+    tdiv(class="timeline-header"):
+      renderSearchForm("lists", "Enter search...", results.query.text)
+
+    renderSearchTabs(results.query)
+    renderTimelineLists(results, prefs, path)
 
 
 
@@ -14200,7 +14447,22 @@ proc renderReplyThread(thread: Chain; prefs: Prefs; path: string): VNode =
     if thread.hasMore:
       renderMoreReplies(thread)
 
-proc renderReplies*(replies: Result[Chain]; prefs: Prefs; path: string; tweet: Tweet = nil): VNode =
+proc renderReplySort(sort: RankingMode): VNode =
+  buildHtml(tdiv(class="reply-sort")):
+    span(class="reply-sort-label"): text "Sort replies:"
+    for mode in RankingMode:
+      let
+        cls = if mode == sort: "reply-sort-option active"
+              else: "reply-sort-option"
+        label = case mode
+                of Relevance: "Relevant"
+                of Recency: "Recent"
+                of Likes: "Liked"
+      a(class=cls, href=("?sort=" & $mode & "#r")):
+        text label
+
+proc renderReplies*(replies: Result[Chain]; prefs: Prefs; path: string;
+                    tweet: Tweet = nil; sort = Relevance): VNode =
   buildHtml(tdiv(class="replies", id="r")):
     var hasReplies = false
     var replyCount = 0
@@ -14212,9 +14474,11 @@ proc renderReplies*(replies: Result[Chain]; prefs: Prefs; path: string; tweet: T
 
     if hasReplies and replies.bottom.len > 0:
       if tweet == nil or not replies.beginning or replyCount < tweet.stats.replies:
-        renderMore(Query(), replies.bottom, focus="#r")
+        let extra = if sort == Relevance: "" else: "sort=" & $sort & "&"
+        renderMore(Query(), replies.bottom, focus="#r", extra=extra)
 
-proc renderConversation*(conv: Conversation; prefs: Prefs; path: string): VNode =
+proc renderConversation*(conv: Conversation; prefs: Prefs; path: string;
+                         sort = Relevance): VNode =
   let hasAfter = conv.after.content.len > 0
   let threadId = conv.tweet.threadId
   buildHtml(tdiv(class="conversation")):
@@ -14247,7 +14511,8 @@ proc renderConversation*(conv: Conversation; prefs: Prefs; path: string): VNode 
       if not conv.replies.beginning:
         renderNewer(Query(), getLink(conv.tweet), focus="#r")
       if conv.replies.content.len > 0 or conv.replies.bottom.len > 0:
-        renderReplies(conv.replies, prefs, path, conv.tweet)
+        renderReplySort(sort)
+        renderReplies(conv.replies, prefs, path, conv.tweet, sort)
 
     renderToTop(focus="#m")
 
@@ -14278,7 +14543,7 @@ import ".."/[types, query, formatters]
 import tweet, renderutils
 
 proc timelineViewClass(query: Query): string =
-  if query.kind != media:
+  if query.kind != QueryKind.media:
     return "timeline"
 
   case query.view
@@ -14322,9 +14587,9 @@ proc renderNewer*(query: Query; path: string; focus=""): VNode =
     a(href=(p & url)):
       text "Load newest"
 
-proc renderMore*(query: Query; cursor: string; focus=""): VNode =
+proc renderMore*(query: Query; cursor: string; focus=""; extra=""): VNode =
   buildHtml(tdiv(class="show-more")):
-    a(href=(&"?{getQuery(query)}cursor={encodeUrl(cursor, usePlus=false)}{focus}")):
+    a(href=(&"?{extra}{getQuery(query)}cursor={encodeUrl(cursor, usePlus=false)}{focus}")):
       text "Load more"
 
 proc renderNoMore(): VNode =
@@ -14378,6 +14643,84 @@ proc renderTimelineUsers*(results: Result[User]; prefs: Prefs; path=""): VNode =
     if results.content.len > 0:
       for user in results.content:
         renderUser(user, prefs)
+      if results.bottom.len > 0:
+        renderMore(results.query, results.bottom)
+      renderToTop()
+    elif results.beginning:
+      renderNoneFound()
+    else:
+      renderNoMore()
+
+proc mentionUsername(word: string): string =
+  # "@user" -> "user" for well-formed mentions, "" otherwise
+  if word.len > 1 and word[0] == '@' and
+     word[1 .. ^1].allCharsInSet({'A'..'Z', 'a'..'z', '0'..'9', '_'}):
+    word[1 .. ^1]
+  else: ""
+
+proc mentionedUser(s: string): string =
+  # last @mention in strings like "65 followers including @user"
+  let words = s.split(' ')
+  for i in countdown(words.high, 0):
+    result = mentionUsername(words[i])
+    if result.len > 0: return
+
+proc renderMentionedText(s: string): VNode =
+  # linkify @mentions in plain API strings like "65 followers including @user"
+  let words = s.split(' ')
+  buildHtml(span):
+    for i in 0 ..< words.len:
+      if i > 0: text " "
+      let username = mentionUsername(words[i])
+      if username.len > 0:
+        a(href=("/" & username)): text words[i]
+      else:
+        text words[i]
+
+proc renderListCard(r: ListSearchResult): VNode =
+  let listUrl = "/i/lists/" & r.list.id
+  buildHtml(tdiv(class="timeline-item list-result")):
+    a(class="tweet-link", href=listUrl)
+    a(class="list-result-banner", href=listUrl):
+      if r.list.banner.len > 0:
+        genImg(r.list.banner)
+    tdiv(class="list-result-body"):
+      tdiv(class="list-result-title fullname-and-username"):
+        a(class="list-name fullname", href=listUrl): text r.list.name
+        span(class="list-members"):
+          text &"· {insertSep($r.list.members, ',')} members"
+      tdiv(class="list-result-context"):
+        if r.followersContext.len > 0:
+          # the first facepile belongs to the "including @user" account
+          let mentioned = mentionedUser(r.followersContext)
+          for i in 0 ..< r.facepiles.len:
+            if i == 0 and mentioned.len > 0:
+              a(class="facepile-link", href=("/" & mentioned)):
+                genImg(r.facepiles[i], class="list-facepile")
+            else:
+              genImg(r.facepiles[i], class="list-facepile")
+          renderMentionedText(r.followersContext)
+        else:
+          if r.owner.username.len > 0:
+            a(class="facepile-link", href=("/" & r.owner.username)):
+              genImg(r.owner.getUserPic("_mini"), class="list-facepile")
+          else:
+            genImg(r.owner.getUserPic("_mini"), class="list-facepile")
+          linkUser(r.owner, class="fullname")
+          linkUser(r.owner, class="username")
+      if r.list.description.len > 0:
+        tdiv(class="list-result-description"):
+          text r.list.description
+
+proc renderTimelineLists*(results: Result[ListSearchResult]; prefs: Prefs;
+                          path=""): VNode =
+  buildHtml(tdiv(class="timeline")):
+    if not results.beginning:
+      renderNewer(results.query, path)
+
+    if results.content.len > 0:
+      for list in results.content:
+        renderListCard(list)
       if results.bottom.len > 0:
         renderMore(results.query, results.bottom)
       renderToTop()
@@ -14981,12 +15324,17 @@ class Timeline(object):
     protected = '.timeline-protected'
     photo_rail = '.photo-rail-grid'
     media_view_tabs = '.media-view-tabs'
-    media_view_timeline = '.media-view-tabs a[href$="media?view=timeline"]'
-    media_view_grid = '.media-view-tabs a[href$="media?view=grid"]'
-    media_view_gallery = '.media-view-tabs a[href$="media?view=gallery"]'
+    media_view_timeline = '.media-view-tabs a[href*="view=timeline"]'
+    media_view_grid = '.media-view-tabs a[href*="view=grid"]'
+    media_view_gallery = '.media-view-tabs a[href*="view=gallery"]'
     media_view_active = '.media-view-tabs .tab-item.active a'
     grid_view = '.timeline.media-grid-view'
     gallery_view = '.timeline.media-gallery-view'
+
+
+class Search(object):
+    tab_item = '.tab .tab-item'
+    tab_active = '.tab .tab-item.active a'
 
 
 class Conversation(object):
@@ -14997,6 +15345,8 @@ class Conversation(object):
     thread = '.reply'
     tweet = '.timeline-item'
     tweet_text = '.tweet-content'
+    reply_sort = '.reply-sort'
+    reply_sort_active = '.reply-sort-option.active'
 
 
 class Poll(object):
@@ -15055,6 +15405,9 @@ package-mode = false
 [tool.poetry.dependencies]
 python = "^3.14"
 seleniumbase = "4.46.5"
+
+[tool.pytest.ini_options]
+addopts = "--timeout_multiplier=3"
 
 
 
@@ -15166,6 +15519,7 @@ class ArticleSelectors:
     avatar = '.article-author img.avatar'
     verified = '.article-author .verified-icon'
     media = '.article-media'
+    caption = '.article-media-caption'
     divider = '.article-divider'
 
 
@@ -15181,10 +15535,6 @@ articles = [
     ['2064691088636424322',
      'Consciousness and AI: The Problem of Inner Experience',
      'CosmicOrFun', 'Cosmic Orphan'],
-
-    ['2064696491948777658',
-     'NC Push for Data Centers + Stablecoin Crypto= Data Centers are defacto BAILOUT OF Fed Reserve System',
-     'June_12_1776', 'June_12_1776'],
 
     ['2064755789391110154',
      'DeFi Markets Update 2026-06-10',
@@ -15278,11 +15628,11 @@ class ArticleContentTest(BaseTestCase):
         self.assertGreater(len(italic), 0)
 
     def test_article_has_blockquotes(self):
-        self.open_nitter('i/article/2064696491948777658')
+        self.open_nitter('i/article/2064166507438059759')
         self.assert_element_visible('.article-body blockquote')
 
     def test_article_has_lists(self):
-        self.open_nitter('i/article/2064696491948777658')
+        self.open_nitter('i/article/2064166507438059759')
         self.assert_element_visible('.article-body ul')
 
     def test_article_has_emoji_text(self):
@@ -15338,6 +15688,27 @@ class ArticleMediaTest(BaseTestCase):
         tweets = self.find_elements('.article-body .timeline-item')
         self.assertGreaterEqual(len(tweets), 3)
 
+    def test_media_caption_displayed(self):
+        self.open_nitter('i/article/2064689664213041529')
+        self.assert_element_visible(ArticleSelectors.caption)
+        captions = self.find_elements(ArticleSelectors.caption)
+        self.assertGreaterEqual(len(captions), 5)
+
+    def test_media_caption_text(self):
+        self.open_nitter('i/article/2064689664213041529')
+        self.assert_text_visible('FIGURE 1', ArticleSelectors.caption)
+
+    def test_media_caption_alt_attribute(self):
+        self.open_nitter('i/article/2064689664213041529')
+        img = self.find_element(f'{ArticleSelectors.media} img')
+        alt = img.get_attribute('alt')
+        self.assertGreater(len(alt), 0)
+
+    def test_no_caption_when_absent(self):
+        self.open_nitter('i/article/2062858677149675788')
+        captions = self.find_elements(ArticleSelectors.caption)
+        self.assertEqual(len(captions), 0)
+
 
 class ArticleMentionTest(BaseTestCase):
     def test_mention_linkified(self):
@@ -15361,7 +15732,7 @@ class ArticleMentionTest(BaseTestCase):
 
     def test_no_spurious_whitespace_in_styled_paragraph(self):
         """Styled paragraphs should not have extra whitespace from VNode serialization."""
-        self.open_nitter('i/article/2064696491948777658')
+        self.open_nitter('i/article/2064166507438059759')
         source = self.get_page_source()
         self.assertNotIn('white-space: pre-wrap', source)
         self.assertNotIn('white-space:pre-wrap', source)
@@ -15976,17 +16347,180 @@ class QuoteTest(BaseTestCase):
 
 
 ================================================
-FILE: tests/test_search.py
+FILE: tests/test_reply_sort.py
 ================================================
-from base import BaseTestCase
 from parameterized import parameterized
 
+from base import BaseTestCase, Conversation
 
-#class SearchTest(BaseTestCase):
-    #@parameterized.expand([['@mobile_test'], ['@mobile_test_2']])
-    #def test_username_search(self, username):
-        #self.search_username(username)
-        #self.assert_text(f'{username}')
+sort_modes = [
+    ['jack/status/20', 'Relevant'],
+    ['jack/status/20?sort=relevance', 'Relevant'],
+    ['jack/status/20?sort=recency', 'Recent'],
+    ['jack/status/20?sort=likes', 'Liked'],
+    ['jack/status/20?sort=garbage', 'Relevant'],
+    ['jack/status/20?sort=%3Cscript%3E', 'Relevant'],
+]
+
+
+class ReplySortTest(BaseTestCase):
+    @parameterized.expand(sort_modes)
+    def test_active_mode(self, page, expected_active):
+        self.open_nitter(page)
+        self.assert_element_visible(Conversation.reply_sort)
+        active = self.get_text(Conversation.reply_sort_active)
+        self.assert_equal(active.strip(), expected_active)
+
+    def test_all_three_options_present(self):
+        self.open_nitter('jack/status/20')
+        options = self.find_elements('.reply-sort-option')
+        labels = [o.text.strip() for o in options]
+        self.assert_equal(labels, ['Relevant', 'Recent', 'Liked'])
+
+    def test_option_links_carry_sort_param(self):
+        self.open_nitter('jack/status/20')
+        for slug in ['Relevance', 'Recency', 'Likes']:
+            self.assert_element(f'.reply-sort-option[href="?sort={slug}#r"]')
+
+    def test_load_more_preserves_sort(self):
+        self.open_nitter('jack/status/20?sort=Likes')
+        href = self.get_attribute('.replies .show-more a', 'href')
+        self.assert_true('sort=Likes' in href, f'sort missing from: {href}')
+
+
+
+================================================
+FILE: tests/test_search.py
+================================================
+from parameterized import parameterized
+
+from base import BaseTestCase, Search
+
+# [url, expected active tab label]
+active_tabs = [
+    ['search?f=tweets&q=nasa', 'Latest'],
+    ['search?f=top&q=nasa', 'Top'],
+    ['search?f=media&q=nasa', 'Media'],
+    ['search?f=users&q=nasa', 'Users'],
+    ['search?f=lists&q=test', 'Lists'],
+    # unknown/hostile values fall back to Latest
+    ['search?f=garbage&q=nasa', 'Latest'],
+    ['search?f=%3Cscript%3E&q=nasa', 'Latest'],
+    # x.com URL compat: f=live/user/list (f=media/top match natively)
+    ['search?f=live&q=nasa', 'Latest'],
+    ['search?f=user&q=nasa', 'Users'],
+    ['search?f=list&q=test', 'Lists'],
+]
+
+results_pages = [
+    ['search?f=tweets&q=nasa'],
+    ['search?f=top&q=nasa'],
+    ['search?f=media&q=nasa'],
+]
+
+
+class SearchProductTest(BaseTestCase):
+    @parameterized.expand(active_tabs)
+    def test_active_tab(self, page, expected_active):
+        self.open_nitter(page)
+        active = self.get_text(Search.tab_active)
+        self.assert_equal(active.strip(), expected_active)
+
+    def test_all_tabs_present(self):
+        self.open_nitter('search?f=tweets&q=nasa')
+        tabs = self.find_elements(Search.tab_item)
+        labels = [t.text.strip() for t in tabs]
+        self.assert_equal(labels, ['Top', 'Latest', 'Media', 'Users', 'Lists'])
+
+    @parameterized.expand(results_pages)
+    def test_results_render(self, page):
+        self.open_nitter(page)
+        self.assert_element('.timeline .timeline-item')
+
+    def test_tab_links_carry_kind(self):
+        self.open_nitter('search?f=tweets&q=nasa')
+        self.assert_element('.tab-item a[href="?f=top&q=nasa"]')
+        self.assert_element('.tab-item a[href="?f=media&q=nasa"]')
+        self.assert_element('.tab-item a[href="?f=tweets&q=nasa"]')
+        self.assert_element('.tab-item a[href="?f=users&q=nasa"]')
+        self.assert_element('.tab-item a[href="?f=lists&q=nasa"]')
+
+    def test_show_more_preserves_kind(self):
+        self.open_nitter('search?f=media&q=nasa')
+        href = self.get_attribute('.show-more a', 'href')
+        self.assert_true('f=media' in href, f'f=media missing from: {href}')
+
+    def test_search_form_preserves_kind(self):
+        self.open_nitter('search?f=top&q=nasa')
+        self.assert_element_present('.search-field input[name="f"][value="top"]')
+
+    def test_media_operators_compose(self):
+        self.open_nitter('search?f=media&q=nasa&e-nativeretweets=on')
+        self.assert_element('.timeline .timeline-item')
+
+    @parameterized.expand([['DAAC'], ['AB'], ['maxid:'], ['maxid:abc']])
+    def test_garbage_cursor_no_crash(self, cursor):
+        # short/invalid cursors must render the page, not a 500 error
+        self.open_nitter(f'search?f=media&q=nasa&cursor={cursor}')
+        self.assert_element(Search.tab_active)
+
+    def test_no_results(self):
+        self.open_nitter('search?f=media&q=xkqzjwv_no_results_2026')
+        self.assert_text('No items found', '.timeline-none')
+
+    def test_list_results_render(self):
+        self.open_nitter('search?f=lists&q=test')
+        self.assert_element('.timeline-item.list-result')
+        self.assert_element('.list-result .list-name')
+        self.assert_element('.list-result .list-members')
+
+    def test_list_card_links_to_list(self):
+        self.open_nitter('search?f=lists&q=test')
+        href = self.get_attribute('.list-result .list-name', 'href')
+        self.assert_true('/i/lists/' in href, f'unexpected list link: {href}')
+
+    def test_list_row_clickable(self):
+        self.open_nitter('search?f=lists&q=test')
+        href = self.get_attribute('.list-result a.tweet-link', 'href')
+        self.assert_true('/i/lists/' in href, f'unexpected row link: {href}')
+
+    def test_list_avatar_links_to_user(self):
+        self.open_nitter('search?f=lists&q=test')
+        # the avatar link in a row must point at the user named in that row
+        row = '.list-result:has(a.facepile-link)'
+        self.assert_element(f'{row} a.facepile-link > img')
+        href = self.get_attribute(f'{row} a.facepile-link', 'href')
+        ctx = self.get_text(f'{row} .list-result-context')
+        mentioned = ctx.split('@')[-1].strip()
+        self.assert_true(href.endswith('/' + mentioned),
+                         f'avatar link {href} does not match @{mentioned}')
+
+    def test_list_pagination_preserves_kind(self):
+        self.open_nitter('search?f=lists&q=test')
+        href = self.get_attribute('.show-more a', 'href')
+        self.assert_true('f=lists' in href, f'f=lists missing from: {href}')
+
+    def test_list_garbage_cursor_no_crash(self):
+        self.open_nitter('search?f=lists&q=test&cursor=DAAC')
+        self.assert_element(Search.tab_active)
+
+    def test_media_view_tabs_present(self):
+        self.open_nitter('search?f=media&q=nasa')
+        tabs = self.find_elements('.media-view-tabs .tab-item')
+        labels = [t.text.strip() for t in tabs]
+        self.assert_equal(labels, ['Timeline', 'Grid', 'Gallery'])
+
+    def test_media_view_grid(self):
+        self.open_nitter('search?f=media&q=nasa&view=grid')
+        self.assert_element('.timeline.media-grid-view')
+
+    def test_media_view_gallery(self):
+        self.open_nitter('search?f=media&q=nasa&view=gallery')
+        self.assert_element('.timeline.media-gallery-view .gallery-masonry')
+
+    def test_media_view_tabs_only_on_media(self):
+        self.open_nitter('search?f=tweets&q=nasa')
+        self.assert_element_not_present('.media-view-tabs')
 
 
 

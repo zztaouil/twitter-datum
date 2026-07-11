@@ -6,9 +6,9 @@ from .models import Tweet, User
 
 _ENDPOINT_USER = "IGgvgiOx4QZndDHuD3x9TQ/UserByScreenName"
 _ENDPOINT_TWEETS = "LE3eTyeqhBh2g-fX85O2eQ/UserWithProfileTweetsQueryV2"
-_ENDPOINT_TWEETS_AND_REPLIES = "AcYHjc_YAx-9_rKWdMsKvA/UserWithProfileTweetsAndRepliesQueryV2"
+_ENDPOINT_TWEETS_AND_REPLIES = "FIFgycIi-CNJcV0R-135Uw/UserTweetsAndReplies"
 _ENDPOINT_TWEET = "OZMbEnEa96AN8Pq6HyTWdw/ConversationTimeline"
-_ENDPOINT_SEARCH = "-TFXKoMnMTKdEXcCn-eahw/SearchTimeline"
+_ENDPOINT_SEARCH = "Bcw3RzK-PatNAmbnw54hFw/SearchTimeline"
 
 _TOGGLES_USER = '{"withArticleRichContentState":true,"withArticlePlainText":false,"withGrokAnalyze":false,"withDisallowedReplyControls":false}'
 _TOGGLES_TWEETS = '{"withArticleRichContentState":true,"withArticlePlainText":false}'
@@ -77,17 +77,19 @@ def _parse_tweet_result(node: dict, fallback_user: User | None = None) -> Tweet 
     )
 
 
+def _item_content(item_wrapper: dict) -> dict:
+    # newer endpoints (SearchTimeline, UserTweetsAndReplies) nest under
+    # "itemContent" (camelCase); older ones (UserWithProfileTweetsQueryV2,
+    # ConversationTimeline) still use "content"
+    return item_wrapper.get("itemContent") or item_wrapper.get("content") or {}
+
+
 def _extract_tweet_node(entry: dict) -> dict | None:
-    result = (
-        entry.get("content", {})
-        .get("content", {})
-        .get("tweet_results", {})
-        .get("result")
-    )
+    result = _item_content(entry.get("content", {})).get("tweet_results", {}).get("result")
     if result:
         return result
     for item in entry.get("content", {}).get("items", []):
-        r = item.get("item", {}).get("content", {}).get("tweet_results", {}).get("result")
+        r = _item_content(item.get("item", {})).get("tweet_results", {}).get("result")
         if r:
             return r
     return None
@@ -102,7 +104,7 @@ def _walk_instructions(
     cursor = ""
     for inst in instructions:
         for entry in inst.get("entries", []):
-            entry_id = entry.get("entry_id", "")
+            entry_id = entry.get("entryId") or entry.get("entry_id", "")
             if any(entry_id.startswith(p) for p in entry_prefixes):
                 node = _extract_tweet_node(entry)
                 t = _parse_tweet_result(node) if node else None
@@ -158,15 +160,21 @@ def get_tweets_and_replies(
     count: int = 20,
     max_count: int = 20,
 ) -> tuple[list[Tweet], str]:
-    variables: dict = {"rest_id": user_id, "count": count}
+    variables: dict = {
+        "userId": user_id,
+        "count": count,
+        "includePromotedContent": True,
+        "withCommunity": True,
+        "withVoice": True,
+    }
     if cursor:
         variables["cursor"] = cursor
     data = client._fetch(_ENDPOINT_TWEETS_AND_REPLIES, variables, field_toggles=_TOGGLES_TWEETS)
     instructions = (
         data.get("data", {})
-        .get("user_result", {})
+        .get("user", {})
         .get("result", {})
-        .get("timeline_response", {})
+        .get("timeline", {})
         .get("timeline", {})
         .get("instructions", [])
     )

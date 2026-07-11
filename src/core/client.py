@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import bs4
 import httpx
+from x_client_transaction import ClientTransaction
+from x_client_transaction.utils import generate_headers as _tid_headers, get_ondemand_file_url
 
 BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 BASE = "https://x.com/i/api/graphql"
@@ -23,17 +26,34 @@ GQL_FEATURES = json.dumps({
     "premium_content_api_read_enabled": False,
     "communities_web_enable_tweet_community_results_fetch": True,
     "c9s_tweet_anatomy_moderator_badge_enabled": True,
+    "c9s_list_members_action_api_enabled": False,
+    "c9s_superc9s_indication_enabled": False,
     "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
     "responsive_web_grok_analyze_post_followups_enabled": True,
+    "rweb_cashtags_composer_attachment_enabled": True,
+    "responsive_web_jetfuel_frame": True,
+    "responsive_web_grok_share_attachment_enabled": True,
+    "responsive_web_grok_annotations_enabled": True,
     "articles_preview_enabled": True,
     "responsive_web_edit_tweet_api_enabled": True,
+    "rweb_conversational_replies_downvote_enabled": False,
     "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
     "view_counts_everywhere_api_enabled": True,
     "longform_notetweets_consumption_enabled": True,
     "responsive_web_twitter_article_tweet_consumption_enabled": True,
+    "content_disclosure_indicator_enabled": True,
+    "content_disclosure_ai_generated_indicator_enabled": True,
+    "responsive_web_grok_show_grok_translated_post": True,
+    "responsive_web_grok_analysis_button_from_backend": True,
+    "post_ctas_fetch_enabled": True,
+    "freedom_of_speech_not_reach_fetch_enabled": True,
+    "standardized_nudges_misinfo": True,
     "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
     "longform_notetweets_rich_text_read_enabled": True,
     "longform_notetweets_inline_media_enabled": False,
+    "responsive_web_grok_image_annotation_enabled": True,
+    "responsive_web_grok_imagine_annotation_enabled": True,
+    "responsive_web_grok_community_note_auto_translation_is_enabled": True,
     "responsive_web_enhance_cards_enabled": False,
 }, separators=(",", ":"))
 
@@ -92,6 +112,7 @@ class TwitterClient:
     def __init__(self, auth_token: str, ct0: str, username: str = "", id: str = ""):
         self._pool = [Session(username=username, id=id, auth_token=auth_token, ct0=ct0)]
         self._http = httpx.Client(follow_redirects=True, timeout=30.0)
+        self._ct: ClientTransaction | None = None
 
     @classmethod
     def from_file(cls, path: str = "sessions.jsonl") -> "TwitterClient":
@@ -114,7 +135,21 @@ class TwitterClient:
         client = cls.__new__(cls)
         client._pool = sessions
         client._http = httpx.Client(follow_redirects=True, timeout=30.0)
+        client._ct = None
         return client
+
+    def _transaction(self) -> ClientTransaction:
+        # ponytail: bootstrapped once and cached for the process lifetime;
+        # X occasionally redeploys the home page's animation key mid-run,
+        # which would make every subsequent transaction id invalid until
+        # the process restarts. The existing per-chunk/per-target try/except
+        # in the extractors already contains that failure mode.
+        if self._ct is None:
+            home = self._http.get("https://x.com/", headers=_tid_headers())
+            home_soup = bs4.BeautifulSoup(home.text, "html.parser")
+            ondemand = self._http.get(get_ondemand_file_url(home_soup))
+            self._ct = ClientTransaction(home_page_response=home_soup, ondemand_file_response=ondemand.text)
+        return self._ct
 
     def _pick_session(self, endpoint: str) -> Session:
         while True:
@@ -152,7 +187,12 @@ class TwitterClient:
         if field_toggles:
             params["fieldToggles"] = field_toggles
 
-        resp = self._http.get(f"{BASE}/{endpoint}", params=params, headers=session.headers())
+        headers = session.headers()
+        headers["x-client-transaction-id"] = self._transaction().generate_transaction_id(
+            method="GET", path=f"/i/api/graphql/{endpoint}"
+        )
+
+        resp = self._http.get(f"{BASE}/{endpoint}", params=params, headers=headers)
         resp.raise_for_status()
 
         try:
