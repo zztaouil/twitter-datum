@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Gamma extraction: reverse-chronological (now -> oldest) search sweep.
+Gamma extraction: reverse-chronological (today -> oldest) search sweep.
 
 Strategy:
   Chunk each target's history by month, newest chunk first, and exhaust
@@ -94,10 +94,7 @@ def _coverage(conn, user_id: str, tweets_count: int) -> str:
 
 def sweep_search_backward(client, conn, username: str, user_id: str):
     """Chunk-by-month search sweep, newest chunk to oldest, covering full account history."""
-    row = conn.execute(
-        "SELECT MIN(created_at) FROM tweets WHERE user_id = ?", (user_id,)
-    ).fetchone()
-    start = date.fromisoformat(row[0][:10]) if row[0] else date.today() + timedelta(days=1)
+    start = date.today() + timedelta(days=1)
 
     existing = _load_existing(conn, user_id)
     total_new = 0
