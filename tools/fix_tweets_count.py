@@ -3,9 +3,9 @@
 import sys, os
 sys.path.insert(0, os.getcwd())
 
-from scenario.extraction_alpha import TARGETS
+from src.extraction.alpha import TARGETS
 from src import TwitterClient, get_profile
-import src.db as db
+import src.core.db as db
 
 def main():
     client = TwitterClient.from_file("sessions.jsonl")

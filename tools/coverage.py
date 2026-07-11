@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys, os
 sys.path.insert(0, os.getcwd())
-import src.db as db
+import src.core.db as db
 
 conn = db.init_db()
 rows = conn.execute("""

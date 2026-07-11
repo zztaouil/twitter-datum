@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from src import TwitterClient, get_profile, get_replies, get_tweets
 
-import src.db as db
+import src.core.db as db
 
 TARGETS = [
     "fm6oaorg",

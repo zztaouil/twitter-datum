@@ -7,8 +7,8 @@ import os
 import sys
 sys.path.insert(0, os.getcwd())  # $(pwd) so `src` resolves when run from project root
 
-import src.db as db
-from src.utils import write_csv
+import src.core.db as db
+from src.core.utils import write_csv
 
 
 def run(conn) -> None:

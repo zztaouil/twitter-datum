@@ -2,17 +2,17 @@ import importlib
 import logging
 import os
 import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-_wf = importlib.import_module("ml.1_words_frequency")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+_wf = importlib.import_module("src.ml.1_words_frequency")
 word_frequency = _wf.word_frequency
-_tm = importlib.import_module("ml.2_topics_modeling")
+_tm = importlib.import_module("src.ml.2_topics_modeling")
 topics_for_target = _tm.topics_for_target
 
 from dotenv import load_dotenv
 load_dotenv()
 
-import src.db as db
-from src.utils import write_csv, write_gexf
+import src.core.db as db
+from src.core.utils import write_csv, write_gexf
 
 from telegram import BotCommand, Update
 from telegram.ext import (

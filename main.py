@@ -1,4 +1,4 @@
-import src.db as db
+import src.core.db as db
 from src import TwitterClient, get_profile, get_tweets, get_replies
 
 # do not touch global variables

@@ -11,8 +11,8 @@ import os
 import sys
 sys.path.insert(0, os.getcwd())
 
-import src.db as db
-from src.utils import write_csv, write_gexf
+import src.core.db as db
+from src.core.utils import write_csv, write_gexf
 
 
 def run(conn, username: str) -> None:

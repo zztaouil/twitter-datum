@@ -166,7 +166,7 @@ def _fmt_breakdown(breakdown: dict[str, float]) -> str:
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: python ml/2_topics_modeling.py <username> [n_topics]")
+        print("usage: python src/ml/2_topics_modeling.py <username> [n_topics]")
         sys.exit(1)
 
     username = sys.argv[1]

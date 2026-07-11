@@ -71,7 +71,6 @@ cette exploration a aboutit à une definition de scenario d'extraction.
 scenario alpha extrait les tweets et réponses d'un compte target, checker le lien des réponses et les re-posts.
 
 
-
 #### Notes
 For large scale extraction.
 - we have to study how rate limits works.

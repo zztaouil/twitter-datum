@@ -39,7 +39,7 @@ def word_frequency(conn, username: str, top_n: int = 30) -> list[tuple[str, int]
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: python ml/1_words_frequency.py <username> [top_n=30]")
+        print("usage: python src/ml/1_words_frequency.py <username> [top_n=30]")
         sys.exit(1)
 
     username = sys.argv[1]

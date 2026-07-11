@@ -19,7 +19,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 from src import TwitterClient, get_profile, get_tweets_and_replies, search_tweets
-import src.db as db
+import src.core.db as db
 
 TARGETS = [
     "realDonaldTrump",
