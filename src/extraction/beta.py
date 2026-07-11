@@ -19,16 +19,8 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 from src import TwitterClient, get_profile, get_tweets_and_replies, search_tweets
+from src.config import TARGETS
 import src.core.db as db
-
-TARGETS = [
-    "realDonaldTrump",
-    "fm6oaorg",
-    "Saudi_Moia",
-    "diyanet_en",
-    "h_bennajeh",
-    "Ali_AlQaradaghi",
-]
 
 # chunk size in days for the search sweep
 CHUNK_DAYS = 30

@@ -13,50 +13,9 @@ import signal
 import time
 from datetime import datetime
 from src import TwitterClient, get_profile, get_replies, get_tweets
+from src.config import TARGETS
 
 import src.core.db as db
-
-TARGETS = [
-    "fm6oaorg",
-    "MmedHamdaoui",
-    "osekguub6096Gwf",
-    "habousmaroc",
-    "MarocDiplo_AR",
-    "nosraorg",
-    "USAbilAraby",
-    "AIPACofficial",
-    "TuckerCarlson",
-    "SecRubio",
-    "WhiteHouse",
-    "CUFI",
-    "TheIRD",
-    "StateDept",
-    "USIPorg",
-    "Franklin_Graham",
-    "SpeakerJohnson",
-    "GovMikeHuckabee",
-    "RTErdogan",
-    "DiyanetDijital",
-    "Tika_Turkiye",
-    "mfa_russia",
-    "KremlinRussia_E",
-    "patriarchia_ru",
-    "mospat_ru",
-    "ar_khamenei",
-    "IRIMFA_EN",
-    "netanyahu",
-    "IsraelMFA",
-    "IsraelinUSA",
-    "EdyCohen",
-    "IsraeliPM",
-    "IDF",
-    "itamarbengvir",
-    "bezalelsm",
-    "Pontifex_ar",
-    "vaticannews_fr",
-    "AlAzhar",
-    "alimamaltayeb",
-]
 
 N = 2000
 Y = 1000
