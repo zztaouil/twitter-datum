@@ -154,9 +154,10 @@ def run_target(client, conn, target: str):
 def main():
     client = TwitterClient.from_file("sessions.jsonl")
     conn = db.init_db()
+    targets = random.sample(TARGETS, len(TARGETS))
 
     try:
-        for target in TARGETS:
+        for target in targets:
             if _stop:
                 break
             run_target(client, conn, target)
