@@ -29,7 +29,7 @@ from src.config import TARGETS
 from src.core.client import RateLimitError
 import src.core.db as db
 
-CHUNK_DAYS = 30
+CHUNK_DAYS = 10
 LOG_EVERY = 10
 MAX_EMPTY_CHUNKS = 3
 FOUNDING = date(2006, 1, 1)
@@ -151,10 +151,23 @@ def run_target(client, conn, target: str):
         traceback.print_exc()
 
 
+def _coverage_pct(conn, username: str) -> float:
+    row = conn.execute(
+        """SELECT u.tweets_count, COUNT(t.id) FROM users u
+           LEFT JOIN tweets t ON t.user_id = u.id AND t.parent_tweet_id IS NULL
+           WHERE u.username = ? GROUP BY u.id""",
+        (username,),
+    ).fetchone()
+    if not row or not row[0]:
+        return 0.0
+    return row[1] / row[0] * 100
+
+
 def main():
     client = TwitterClient.from_file("sessions.jsonl")
     conn = db.init_db()
-    targets = random.sample(TARGETS, len(TARGETS))
+    # ponytail: coverage snapshot at startup, not refreshed mid-run
+    targets = sorted(TARGETS, key=lambda t: _coverage_pct(conn, t))
 
     try:
         for target in targets:
