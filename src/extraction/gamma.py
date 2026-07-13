@@ -29,9 +29,9 @@ from src.config import TARGETS
 from src.core.client import RateLimitError
 import src.core.db as db
 
-CHUNK_DAYS = 10
+CHUNK_DAYS = 30
 LOG_EVERY = 10
-MAX_EMPTY_CHUNKS = 7
+MAX_EMPTY_CHUNKS = 5
 FOUNDING = date(2006, 1, 1)
 _WINDOW = 360  # 15-min rate-limit window in seconds
 
