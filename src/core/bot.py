@@ -278,7 +278,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
     app.add_handler(wf_conv)
-    app.add_handler(tm_conv)
+    # app.add_handler(tm_conv)
     app.add_handler(CommandHandler("insight", insight))
     app.run_polling()
 
