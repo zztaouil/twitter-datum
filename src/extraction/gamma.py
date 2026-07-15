@@ -34,6 +34,8 @@ LOG_EVERY = 10
 MAX_EMPTY_CHUNKS = 5
 FOUNDING = date(2006, 1, 1)
 _WINDOW = 360  # 15-min rate-limit window in seconds
+TARGET_COVERAGE = 25.0
+PASS_PAUSE = 900  # 15min between passes, so we don't hammer already-swept targets
 
 _stop = False
 
@@ -166,14 +168,27 @@ def _coverage_pct(conn, username: str) -> float:
 def main():
     client = TwitterClient.from_file("sessions.jsonl")
     conn = db.init_db()
-    # ponytail: coverage snapshot at startup, not refreshed mid-run
-    targets = sorted(TARGETS, key=lambda t: _coverage_pct(conn, t))
 
     try:
-        for target in targets:
+        while not _stop:
+            pending = sorted(
+                (t for t in TARGETS if _coverage_pct(conn, t) < TARGET_COVERAGE),
+                key=lambda t: _coverage_pct(conn, t),
+            )
+            if not pending:
+                print(f"\nAll targets >= {TARGET_COVERAGE}% coverage, done.")
+                break
+            print(f"\n=== pass: {len(pending)} target(s) below {TARGET_COVERAGE}% ===")
+            for target in pending:
+                if _stop:
+                    break
+                run_target(client, conn, target)
             if _stop:
                 break
-            run_target(client, conn, target)
+            print(f"[pause] {PASS_PAUSE}s before next pass…")
+            deadline = time.time() + PASS_PAUSE
+            while time.time() < deadline and not _stop:
+                time.sleep(1)
     finally:
         conn.commit()
         client.rate_limit_summary()

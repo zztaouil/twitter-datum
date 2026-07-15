@@ -4,7 +4,6 @@ TARGETS = [
     "nosraorg",
     "AlAzhar",
     "USAbilAraby",
-    # "AIPACofficial",
     "TuckerCarlson",
     "SecRubio",
     "WhiteHouse",
@@ -12,7 +11,6 @@ TARGETS = [
     "CUFI",
     "TheIRD",
     "StateDept",
-    # "USIPorg",
     "Franklin_Graham",
     "SpeakerJohnson",
     "GovMikeHuckabee",
@@ -43,4 +41,7 @@ TARGETS = [
     "Saudi_Moia",
     "h_bennajeh",
     "Ali_AlQaradaghi",
+    # "AIPAC",
+    # "USIPorg",
+    # "AIPACofficial",
 ]
