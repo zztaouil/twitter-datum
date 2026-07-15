@@ -31,7 +31,6 @@ import src.core.db as db
 
 CHUNK_DAYS = 30
 LOG_EVERY = 10
-MAX_EMPTY_CHUNKS = 5
 FOUNDING = date(2006, 1, 1)
 _WINDOW = 360  # 15-min rate-limit window in seconds
 TARGET_COVERAGE = 25.0
@@ -103,18 +102,15 @@ def sweep_search_backward(client, conn, username: str, user_id: str):
     chunks = list(_date_chunks_backward(start, FOUNDING))
     print(f"  Search sweep: {len(chunks)} monthly chunks from {start} back to {FOUNDING}")
 
-    empty_streak = 0
     for i, (since, until) in enumerate(chunks, 1):
         if _stop:
             break
         q = f"from:{username} since:{since} until:{until} include:nativeretweets"
         cursor = None
         chunk_new = 0
-        chunk_seen = 0
         try:
             while not _stop:
                 tweets, cursor = search_tweets(client, q, cursor=cursor, max_count=0)
-                chunk_seen += len(tweets)
                 chunk_new += _save_new(conn, tweets, existing)
                 if not cursor or not tweets:
                     break
@@ -127,12 +123,8 @@ def sweep_search_backward(client, conn, username: str, user_id: str):
             continue
         conn.commit()
         total_new += chunk_new
-        empty_streak = 0 if chunk_seen else empty_streak + 1
         if i % LOG_EVERY == 0 or i == len(chunks) or chunk_new:
             print(f"  [{i}/{len(chunks)}] {since}->{until}: +{chunk_new} new")
-        if empty_streak >= MAX_EMPTY_CHUNKS:
-            print(f"  {MAX_EMPTY_CHUNKS} consecutive empty chunks, assuming pre-account history, stopping sweep")
-            break
 
     print(f"  Search sweep done: +{total_new} tweets added")
     return total_new
