@@ -7,6 +7,7 @@ import sqlite3
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from typing import cast
 
 from bertopic import BERTopic
 from hdbscan import HDBSCAN
@@ -80,6 +81,7 @@ class Topic:
     id: int
     size: int
     keywords: list[str]
+    scores: list[float]
     examples: list[str]
     lang_breakdown: dict[str, float]
 
@@ -148,12 +150,14 @@ def topics_for_target(
         if tid == -1:
             n_outliers = int(row["Count"])
             continue
-        words = [w for w, _ in model.get_topic(tid)[:top_words]]
+        word_scores = cast(list[tuple[str, float]], model.get_topic(tid))[:top_words]
+        words = [w for w, _ in word_scores]
+        scores = [s for _, s in word_scores]
         examples = model.get_representative_docs(tid)[:n_examples]
         total = sum(lang_counts[tid].values())
         breakdown = {l: round(c / total, 2) for l, c in lang_counts[tid].most_common()}
         topics.append(Topic(
-            id=tid, size=int(row["Count"]), keywords=words,
+            id=tid, size=int(row["Count"]), keywords=words, scores=scores,
             examples=examples, lang_breakdown=breakdown,
         ))
 
@@ -162,6 +166,32 @@ def topics_for_target(
 
 def _fmt_breakdown(breakdown: dict[str, float]) -> str:
     return " / ".join(f"{pct:.0%} {lang.upper()}" for lang, pct in breakdown.items())
+
+
+def plot_topics(result: TopicModelResult, username: str, out_path: str = "topics.png", max_topics: int = 12) -> None:
+    import matplotlib.pyplot as plt
+
+    topics = result.topics[:max_topics]
+    if not topics:
+        return
+
+    ncols = 3
+    nrows = -(-len(topics) // ncols)  # ceil
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3 * nrows), squeeze=False)
+
+    for ax, topic in zip(axes.flat, topics):
+        order = range(len(topic.keywords) - 1, -1, -1)  # smallest score at bottom
+        ax.barh([topic.keywords[i] for i in order], [topic.scores[i] for i in order], color="#4C72B0")
+        ax.set_title(f"Topic {topic.id} ({topic.size} tweets)", fontsize=10)
+        ax.tick_params(labelsize=8)
+
+    for ax in axes.flat[len(topics):]:
+        ax.axis("off")
+
+    fig.suptitle(f"@{username} — word clusters ({result.n_docs} tweets, {result.n_outliers} unclassified)")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
 def main():
@@ -191,6 +221,10 @@ def main():
             snippet = ex if len(ex) <= 120 else ex[:117] + "..."
             print(f'    e.g. "{snippet}"')
         print()
+
+    out_path = f"topics_{username}.png"
+    plot_topics(result, username, out_path)
+    print(f"saved word cluster plot -> {out_path}")
 
 
 if __name__ == "__main__":

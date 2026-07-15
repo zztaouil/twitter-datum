@@ -192,7 +192,7 @@ async def wf_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def wf_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     username = update.message.text.strip().lstrip("@")
     conn = context.bot_data["conn"]
-    results = word_frequency(conn, username, top_n=20)
+    results = word_frequency(conn, username, top_n=30)
     if not results:
         await update.message.reply_text(f"Aucun tweet trouvé pour @{username}.")
         return ConversationHandler.END
