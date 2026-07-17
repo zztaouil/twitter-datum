@@ -5,10 +5,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-import bs4
 import httpx
 from x_client_transaction import ClientTransaction
-from x_client_transaction.utils import generate_headers as _tid_headers, get_ondemand_file_url
+from x_client_transaction.utils import generate_headers as _tid_headers, get_ondemand_file_url, handle_x_migration
 
 BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 BASE = "https://x.com/i/api/graphql"
@@ -111,7 +110,7 @@ class Session:
 class TwitterClient:
     def __init__(self, auth_token: str, ct0: str, username: str = "", id: str = ""):
         self._pool = [Session(username=username, id=id, auth_token=auth_token, ct0=ct0)]
-        self._http = httpx.Client(follow_redirects=True, timeout=30.0)
+        self._http = httpx.Client(follow_redirects=True, timeout=30.0, headers=_tid_headers())
         self._ct: ClientTransaction | None = None
 
     @classmethod
@@ -134,7 +133,7 @@ class TwitterClient:
             raise ValueError(f"No cookie sessions in {path}")
         client = cls.__new__(cls)
         client._pool = sessions
-        client._http = httpx.Client(follow_redirects=True, timeout=30.0)
+        client._http = httpx.Client(follow_redirects=True, timeout=30.0, headers=_tid_headers())
         client._ct = None
         return client
 
@@ -145,8 +144,10 @@ class TwitterClient:
         # the process restarts. The existing per-chunk/per-target try/except
         # in the extractors already contains that failure mode.
         if self._ct is None:
-            home = self._http.get("https://x.com/", headers=_tid_headers())
-            home_soup = bs4.BeautifulSoup(home.text, "html.parser")
+            # x.com sometimes serves a migration interstitial (redirect meta tag
+            # or a form to POST) instead of the real homepage; handle_x_migration
+            # follows that hop so the ondemand script tag is actually present.
+            home_soup = handle_x_migration(self._http)
             ondemand = self._http.get(get_ondemand_file_url(home_soup))
             self._ct = ClientTransaction(home_page_response=home_soup, ondemand_file_response=ondemand.text)
         return self._ct
