@@ -28,6 +28,8 @@ def init_db(path: str = "data.db") -> sqlite3.Connection:
             view_count      INTEGER,
             parent_tweet_id TEXT
         );
+        CREATE INDEX IF NOT EXISTS idx_tweets_parent ON tweets(parent_tweet_id);
+        CREATE INDEX IF NOT EXISTS idx_tweets_user ON tweets(user_id);
     """)
     conn.commit()
     return conn
