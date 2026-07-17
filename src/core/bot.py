@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 _wf = importlib.import_module("src.ml.1_words_frequency")
 word_frequency = _wf.word_frequency
+hashtag_frequency = _wf.hashtag_frequency
 _tm = importlib.import_module("src.ml.2_topics_modeling")
 topics_for_target = _tm.topics_for_target
 
@@ -13,6 +14,7 @@ load_dotenv()
 
 import src.core.db as db
 from src.core.utils import write_csv, write_gexf
+from src.config import TARGETS
 
 from telegram import BotCommand, Update
 from telegram.ext import (
@@ -32,22 +34,7 @@ def _esc(name: str) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    targets_by_country = {
-        "Maroc": ["fm6oaorg", "MmedHamdaoui", "osekguub6096Gwf", "habousmaroc", "MarocDiplo_AR", "nosraorg"],
-        "USA": ["USAbilAraby", "AIPACofficial", "TuckerCarlson", "SecRubio", "WhiteHouse", "CUFI", "TheIRD",
-                "StateDept", "USIPorg", "Franklin_Graham", "SpeakerJohnson", "GovMikeHuckabee", "realDonaldTrump"],
-        "Turquie": ["RTErdogan", "DiyanetDijital", "Tika_Turkiye", "diyanet_en"],
-        "Russie": ["mfa_russia", "KremlinRussia_E", "patriarchia_ru", "mospat_ru"],
-        "Iran": ["ar_khamenei", "IRIMFA_EN"],
-        "Israel": ["netanyahu", "IsraelMFA", "IsraelinUSA", "EdyCohen", "IsraeliPM", "IDF", "itamarbengvir", "bezalelsm"],
-        "Vatican": ["Pontifex_ar", "vaticannews_fr"],
-        "Al-Azhar": ["AlAzhar", "alimamaltayeb"],
-        "Autres": ["Saudi_Moia", "h_bennajeh", "Ali_AlQaradaghi"],
-    }
-    targets_str = "\n\n".join(
-        "*{}*\n".format(country) + "\n".join(f"• @{_esc(t)}" for t in targets)
-        for country, targets in targets_by_country.items()
-    )
+    targets_str = "\n".join(f"• @{_esc(t)}" for t in TARGETS)
     await update.message.reply_text(
         "*Twitter Datum Bot*\n\n"
         "Explorez les réseaux de réponses extraits de Twitter.\n\n"
@@ -201,6 +188,14 @@ async def wf_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         f"*@{username} — mots les plus fréquents*\n\n```\n{lines}\n```",
         parse_mode="Markdown",
     )
+
+    hashtags = hashtag_frequency(conn, username, top_n=30)
+    if hashtags:
+        ht_lines = "\n".join(f"{r:>3}. {h:<25} {c}" for r, (h, c) in enumerate(hashtags, 1))
+        await update.message.reply_text(
+            f"*@{username} — hashtags les plus fréquents*\n\n```\n{ht_lines}\n```",
+            parse_mode="Markdown",
+        )
     return ConversationHandler.END
 
 
