@@ -149,7 +149,7 @@ def _coverage_pct(conn, username: str) -> float:
     row = conn.execute(
         """SELECT u.tweets_count, COUNT(t.id) FROM users u
            LEFT JOIN tweets t ON t.user_id = u.id AND t.parent_tweet_id IS NULL
-           WHERE u.username = ? GROUP BY u.id""",
+           WHERE u.username = ? COLLATE NOCASE GROUP BY u.id""",
         (username,),
     ).fetchone()
     if not row or not row[0]:

@@ -143,7 +143,7 @@ def _process_root(client, conn, root_id: str, reply_count: int):
 def run_target(client, conn, target: str):
     try:
         row = conn.execute(
-            "SELECT id FROM users WHERE username = ?", (target,)
+            "SELECT id FROM users WHERE username = ? COLLATE NOCASE", (target,)
         ).fetchone()
         if not row:
             print(f"  [skip] {target}: no cached profile, run alpha/beta/gamma first")
@@ -163,7 +163,7 @@ def run_target(client, conn, target: str):
 
 
 def _target_has_pending(conn, username: str) -> bool:
-    row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    row = conn.execute("SELECT id FROM users WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
     if not row:
         return False
     user_id = row[0]
@@ -189,7 +189,7 @@ def _top_engagement(conn, username: str) -> int:
     row = conn.execute(
         """SELECT MAX(t.like_count + t.retweet_count + t.reply_count)
            FROM tweets t JOIN users u ON u.id = t.user_id
-           WHERE u.username = ? AND t.parent_tweet_id IS NULL""",
+           WHERE u.username = ? COLLATE NOCASE AND t.parent_tweet_id IS NULL""",
         (username,),
     ).fetchone()
     return row[0] or 0
