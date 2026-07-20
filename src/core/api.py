@@ -42,6 +42,36 @@ def _parse_user_result(result: dict) -> User:
     )
 
 
+_MEDIA_TYPE_MAP = {
+    # current GraphQL shape: node["media_entities"][i]["media_results"]["result"]["media_info"]["__typename"]
+    "ApiImage": "image", "ApiVideo": "video", "ApiGif": "gif",
+    # classic v1.1 shape: legacy.extended_entities/entities media[i]["type"] -- kept as a defensive fallback
+    "photo": "image", "video": "video", "animated_gif": "gif",
+}
+
+
+def _classify_media_type(node: dict, text: str) -> str:
+    legacy = node.get("legacy") or {}
+    media = node.get("media_entities") \
+        or (legacy.get("extended_entities") or {}).get("media") \
+        or (legacy.get("entities") or {}).get("media") \
+        or []
+
+    tags = set()
+    stripped = text
+    for m in media:
+        media_info = ((m.get("media_results") or {}).get("result") or {}).get("media_info") or {}
+        typename = media_info.get("__typename") or m.get("type")
+        if typename in _MEDIA_TYPE_MAP:
+            tags.add(_MEDIA_TYPE_MAP[typename])
+        if m.get("url"):
+            stripped = stripped.replace(m["url"], "")
+    if stripped.strip():
+        tags.add("text")
+
+    return ",".join(sorted(tags)) if tags else "text"
+
+
 def _parse_tweet_result(node: dict, fallback_user: User | None = None) -> Tweet | None:
     if not node:
         return None
@@ -74,6 +104,7 @@ def _parse_tweet_result(node: dict, fallback_user: User | None = None) -> Tweet 
         retweet_count=counts.get("retweet_count") or legacy.get("retweet_count", 0),
         like_count=counts.get("favorite_count") or legacy.get("favorite_count", 0),
         view_count=int((node.get("views") or {}).get("count") or 0),
+        media_type=_classify_media_type(node, text),
     )
 
 

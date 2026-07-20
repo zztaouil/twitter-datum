@@ -25,3 +25,4 @@ class Tweet:
     retweet_count: int
     like_count: int
     view_count: int
+    media_type: str = "text"
