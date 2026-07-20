@@ -25,7 +25,7 @@ from src.core.client import RateLimitError
 import src.core.db as db
 
 LOG_EVERY = 20
-_WINDOW = 360  # 15-min rate-limit window in seconds
+_WINDOW = 30  # 15-min rate-limit window in seconds
 
 _stop = False
 
