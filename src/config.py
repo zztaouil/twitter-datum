@@ -56,6 +56,7 @@ TARGETS = [
     "KSAMOFA",
     "IRIMFA_AR",
     "MFATurkeyArabic",
+    "USCIRF",
     # "AIPAC",
     # "USIPorg",
     # "AIPACofficial",
