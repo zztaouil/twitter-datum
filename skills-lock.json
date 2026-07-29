@@ -6,6 +6,18 @@
       "sourceType": "github",
       "skillPath": "nlp-natural-language-processing/SKILL.md",
       "computedHash": "c71bf8d1310a5acce56c0ece0f0ae0b4c36c5dc905d2a02ac941187064fe6626"
+    },
+    "shadcn-svelte": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn-svelte/SKILL.md",
+      "computedHash": "fcb9b65f29baf8a2e03960d37bceff6a71203aeb962105cf6f78c697c71efc3c"
+    },
+    "svelte-core-bestpractices": {
+      "source": "sveltejs/ai-tools",
+      "sourceType": "github",
+      "skillPath": "plugins/claude/svelte/skills/svelte-core-bestpractices/SKILL.md",
+      "computedHash": "98b4ee346ac45e13740c9f3353b604d5c6e844c96cdc8867052fa961cbdb525d"
     }
   }
 }

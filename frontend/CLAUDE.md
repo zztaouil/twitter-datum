@@ -1,0 +1,1 @@
+- exclusively use shadcn for ui components
