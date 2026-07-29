@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { mockTweets } from '$lib/mock-tweets';
+	import { goto } from '$app/navigation';
+	import { navigating } from '$app/state';
 	import { Input } from '$lib/components/ui/input';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Select from '$lib/components/ui/select';
@@ -8,20 +9,34 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { RangeCalendar } from '$lib/components/ui/range-calendar';
 	import { Button, buttonVariants } from '$lib/components/ui/button';
-	import { DateFormatter, getLocalTimeZone } from '@internationalized/date';
+	import { DateFormatter, getLocalTimeZone, parseDate } from '@internationalized/date';
 	import type { DateRange } from 'bits-ui';
 	import X from '@lucide/svelte/icons/x';
 	import ThemeToggle from '$lib/components/theme-toggle.svelte';
+	import type { PageData } from './$types';
 
-	const categories = [...new Set(mockTweets.map((t) => t.category))].sort();
+	let { data }: { data: PageData } = $props();
+
 	const df = new DateFormatter('en-US', { dateStyle: 'medium' });
 
-	let query = $state('');
-	let category = $state('all');
-	let dateRange = $state<DateRange>({ start: undefined, end: undefined });
+	let query = $state(data.filters.q);
+	let category = $state(data.filters.category || 'all');
+	let author = $state(data.filters.author || 'all');
+	let dateRange = $state<DateRange>({
+		start: data.filters.from ? parseDate(data.filters.from) : undefined,
+		end: data.filters.to ? parseDate(data.filters.to) : undefined
+	});
 
-	const from = $derived(dateRange.start?.toString() ?? '');
-	const to = $derived(dateRange.end?.toString() ?? '');
+	// keep controls in sync with back/forward navigation, which changes `data` without going through applyFilters
+	$effect(() => {
+		query = data.filters.q;
+		category = data.filters.category || 'all';
+		author = data.filters.author || 'all';
+		dateRange = {
+			start: data.filters.from ? parseDate(data.filters.from) : undefined,
+			end: data.filters.to ? parseDate(data.filters.to) : undefined
+		};
+	});
 
 	const rangeLabel = $derived.by(() => {
 		if (!dateRange.start) return 'All dates';
@@ -30,19 +45,22 @@
 		return `${start} – ${df.format(dateRange.end.toDate(getLocalTimeZone()))}`;
 	});
 
-	const filtered = $derived(
-		mockTweets.filter((t) => {
-			if (category !== 'all' && t.category !== category) return false;
-			if (from && t.created_at < from) return false;
-			if (to && t.created_at > to + 'T23:59:59') return false;
-			if (query) {
-				const q = query.toLowerCase();
-				const haystack = `${t.text} ${t.username} ${t.fullname}`.toLowerCase();
-				if (!haystack.includes(q)) return false;
-			}
-			return true;
-		})
-	);
+	function applyFilters(page = '1') {
+		const params = new URLSearchParams();
+		if (query) params.set('q', query);
+		if (category !== 'all') params.set('category', category);
+		if (author !== 'all') params.set('author', author);
+		if (dateRange.start) params.set('from', dateRange.start.toString());
+		if (dateRange.end) params.set('to', dateRange.end.toString());
+		if (page !== '1') params.set('page', page);
+		goto(`?${params}`, { keepFocus: true, noScroll: true, replaceState: true });
+	}
+
+	let debounceHandle: ReturnType<typeof setTimeout>;
+	function onQueryInput() {
+		clearTimeout(debounceHandle);
+		debounceHandle = setTimeout(() => applyFilters(), 300);
+	}
 
 	function formatDate(iso: string) {
 		return new Date(iso).toLocaleDateString(undefined, {
@@ -51,6 +69,9 @@
 			day: 'numeric'
 		});
 	}
+
+	const totalPages = $derived(Math.max(Math.ceil(data.total / data.pageSize), 1));
+	const loading = $derived(!!navigating.to);
 </script>
 
 <div class="mx-auto flex max-w-2xl flex-col gap-4 p-6">
@@ -60,16 +81,31 @@
 	</div>
 
 	<div class="flex flex-col gap-2 rounded-lg border p-3">
-		<Input placeholder="Search by content or author…" bind:value={query} />
+		<Input placeholder="Search by content…" bind:value={query} oninput={onQueryInput} />
 		<div class="flex flex-wrap gap-2">
-			<Select.Root type="single" bind:value={category}>
+			<Select.Root
+				type="single"
+				bind:value={category}
+				onValueChange={() => applyFilters()}
+			>
 				<Select.Trigger class="w-48">
 					{category === 'all' ? 'All categories' : category}
 				</Select.Trigger>
 				<Select.Content>
 					<Select.Item value="all">All categories</Select.Item>
-					{#each categories as c (c)}
-						<Select.Item value={c}>{c}</Select.Item>
+					{#each data.categories as c (c.value)}
+						<Select.Item value={c.value!}>{c.value} ({c.count})</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
+			<Select.Root type="single" bind:value={author} onValueChange={() => applyFilters()}>
+				<Select.Trigger class="w-48">
+					{author === 'all' ? 'All authors' : `@${author}`}
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="all">All authors</Select.Item>
+					{#each data.authors as a (a.username)}
+						<Select.Item value={a.username!}>@{a.username} ({a.count})</Select.Item>
 					{/each}
 				</Select.Content>
 			</Select.Root>
@@ -79,7 +115,10 @@
 						{rangeLabel}
 					</Popover.Trigger>
 					<Popover.Content class="w-auto p-0" align="start">
-						<RangeCalendar bind:value={dateRange} />
+						<RangeCalendar
+							bind:value={dateRange}
+							onValueChange={() => applyFilters()}
+						/>
 					</Popover.Content>
 				</Popover.Root>
 				{#if dateRange.start}
@@ -87,7 +126,10 @@
 						variant="ghost"
 						size="icon"
 						aria-label="Clear dates"
-						onclick={() => (dateRange = { start: undefined, end: undefined })}
+						onclick={() => {
+							dateRange = { start: undefined, end: undefined };
+							applyFilters();
+						}}
 					>
 						<X class="size-4" />
 					</Button>
@@ -96,10 +138,12 @@
 		</div>
 	</div>
 
-	<p class="text-muted-foreground text-sm">{filtered.length} tweets</p>
+	<p class="text-muted-foreground text-sm" class:opacity-50={loading}>
+		{data.total} tweets
+	</p>
 
-	<div class="flex flex-col gap-3">
-		{#each filtered as tweet (tweet.id)}
+	<div class="flex flex-col gap-3" class:opacity-50={loading}>
+		{#each data.tweets as tweet (tweet.id)}
 			<Card.Root>
 				<Card.Header>
 					<div class="flex items-center gap-3">
@@ -124,4 +168,24 @@
 			<p class="text-muted-foreground py-8 text-center">No tweets match your filters.</p>
 		{/each}
 	</div>
+
+	{#if totalPages > 1}
+		<div class="flex items-center justify-center gap-3">
+			<Button
+				variant="outline"
+				disabled={data.page <= 1}
+				onclick={() => applyFilters(String(data.page - 1))}
+			>
+				Previous
+			</Button>
+			<span class="text-muted-foreground text-sm">Page {data.page} of {totalPages}</span>
+			<Button
+				variant="outline"
+				disabled={data.page >= totalPages}
+				onclick={() => applyFilters(String(data.page + 1))}
+			>
+				Next
+			</Button>
+		</div>
+	{/if}
 </div>

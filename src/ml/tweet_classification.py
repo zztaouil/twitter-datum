@@ -27,6 +27,15 @@ DetectorFactory.seed = 0
 CATEGORIES = list(TOPIC_KEYWORDS.keys())
 STEMMERS = {"ar": ISRIStemmer(), "fr": SnowballStemmer("french"), "en": SnowballStemmer("english")}
 
+# Guard against stemmer over-collapsing: e.g. "Fasting" -> "fast" collides with the
+# unrelated common word "fast" (speed). A real inflection always has the stemmer
+# strip at least one character (e.g. "fasting" -> "fast", "organisé" -> "organis",
+# "استقرار" -> "قرر"). So a token that already IS the stem, unchanged, only counts
+# as a hit if some source keyword is itself that short — otherwise it's coincidence,
+# not an inflection of the longer keyword(s) that produced this stem. This applies
+# uniformly across languages (no special-casing needed for Arabic's root stemmer).
+STEM_NEEDS_INFLECTION: dict[str, set[str]] = {lang: set() for lang in STEMMERS}
+
 URL_RE = re.compile(r"https?://\S+")
 MENTION_RE = re.compile(r"@\w+")
 HASHTAG_RE = re.compile(r"#(\w+)")
@@ -53,15 +62,33 @@ def detect_lang(cleaned: str) -> str:
 
 def stem_tokens(cleaned: str, lang: str) -> list[str]:
     text = AR_ALEF_RE.sub("ا", AR_DIACRITICS_RE.sub("", cleaned)) if lang == "ar" else cleaned.lower()
-    tokens = re.findall(r"\w+", text, re.UNICODE)
+    raw_tokens = re.findall(r"\w+", text, re.UNICODE)
     stem = STEMMERS[lang].stem
-    return [stem(t) for t in tokens]
+    stems = []
+    for t in raw_tokens:
+        s = stem(t)
+        if len(t) == len(s) and s in STEM_NEEDS_INFLECTION[lang]:
+            continue
+        stems.append(s)
+    return stems
 
 
 STEMMED_KEYWORDS = {
     cat: {lang: {stem_tokens(w, lang)[0] for w in words} for lang, words in langs.items()}
     for cat, langs in TOPIC_KEYWORDS.items()
 }
+_stem_keyword_lens: dict[str, dict[str, int]] = {lang: {} for lang in STEMMERS}
+for _langs in TOPIC_KEYWORDS.values():
+    for _lang, _words in _langs.items():
+        for _w in _words:
+            _s = stem_tokens(_w, _lang)[0]
+            _lens = _stem_keyword_lens[_lang]
+            _lens[_s] = min(_lens.get(_s, len(_w)), len(_w))
+for _lang, _lens in _stem_keyword_lens.items():
+    for _s, _shortest_keyword_len in _lens.items():
+        if _shortest_keyword_len > len(_s):
+            STEM_NEEDS_INFLECTION[_lang].add(_s)
+
 ALL_KEYWORD_STEMS = {
     lang: set().union(*(STEMMED_KEYWORDS[cat][lang] for cat in CATEGORIES)) for lang in STEMMERS
 }
@@ -143,5 +170,13 @@ def main():
     print(f"wrote {out_path}")
 
 
+def _selfcheck():
+    assert "fast" not in stem_tokens("he would go down fast and hard", "en")
+    assert stem_tokens("fasting", "en") == stem_tokens("fasted", "en") == ["fast"]
+    # legitimate root-shared Arabic match must survive the guard (not a collision)
+    assert "قرر" in stem_tokens("قرار", "ar")
+
+
 if __name__ == "__main__":
+    _selfcheck()
     main()
