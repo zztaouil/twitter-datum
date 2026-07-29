@@ -9,6 +9,7 @@ dependencies = [
     "curl-cffi>=0.15.0",
     "httpx>=0.28.1",
     "langdetect>=1.0.9",
+    "nltk>=3.10.0",
     "nodriver>=0.50.3",
     "pyotp>=2.10.0",
     "python-dotenv>=1.2.2",
