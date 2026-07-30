@@ -1,5 +1,7 @@
+import json
+
 from django.db import connection
-from django.http import JsonResponse
+from django.http import HttpResponseNotAllowed, JsonResponse
 
 from src.config import TARGETS
 
@@ -41,13 +43,14 @@ def search(request):
 
     where_sql = " AND ".join(where)
 
+    pins_join = "LEFT JOIN pinned_tweets pt ON pt.tweet_id = t.id"
     if q:
-        from_sql = "FROM tweets_fts f JOIN tweets t ON t.rowid = f.rowid JOIN users u ON u.id = t.user_id"
+        from_sql = f"FROM tweets_fts f JOIN tweets t ON t.rowid = f.rowid JOIN users u ON u.id = t.user_id {pins_join}"
         where_sql = "f.text MATCH %s AND " + where_sql
         params = [_fts_match(q)] + params
         order_sql = "ORDER BY bm25(tweets_fts)"
     else:
-        from_sql = "FROM tweets t JOIN users u ON u.id = t.user_id"
+        from_sql = f"FROM tweets t JOIN users u ON u.id = t.user_id {pins_join}"
         order_sql = "ORDER BY t.created_at DESC"
 
     with connection.cursor() as cur:
@@ -57,17 +60,89 @@ def search(request):
         cur.execute(
             f"""SELECT t.id, t.text, t.created_at, t.reply_count, t.retweet_count,
                        t.like_count, t.view_count, COALESCE(t.category, 'unclassified'),
-                       u.username, u.fullname
+                       u.username, u.fullname, (pt.tweet_id IS NOT NULL)
                 {from_sql} WHERE {where_sql} {order_sql} LIMIT %s OFFSET %s""",
             [*params, page_size, (page - 1) * page_size],
         )
         columns = [
             "id", "text", "created_at", "reply_count", "retweet_count",
-            "like_count", "view_count", "category", "username", "fullname",
+            "like_count", "view_count", "category", "username", "fullname", "pinned",
         ]
         results = [dict(zip(columns, row)) for row in cur.fetchall()]
+        for r in results:
+            r["pinned"] = bool(r["pinned"])
 
     return JsonResponse({"results": results, "total": total, "page": page, "page_size": page_size})
+
+
+def pins(request):
+    if request.method == "GET":
+        with connection.cursor() as cur:
+            cur.execute(
+                """SELECT t.id, t.text, t.created_at, t.reply_count, t.retweet_count,
+                          t.like_count, t.view_count, COALESCE(t.category, 'unclassified'),
+                          u.username, u.fullname
+                   FROM pinned_tweets p
+                   JOIN tweets t ON t.id = p.tweet_id
+                   JOIN users u ON u.id = t.user_id
+                   ORDER BY p.pinned_at DESC"""
+            )
+            columns = [
+                "id", "text", "created_at", "reply_count", "retweet_count",
+                "like_count", "view_count", "category", "username", "fullname",
+            ]
+            results = [dict(zip(columns, row)) for row in cur.fetchall()]
+        return JsonResponse({"results": results})
+
+    if request.method == "POST":
+        tweet_id = str(json.loads(request.body or "{}").get("tweet_id", "")).strip()
+        if not tweet_id:
+            return JsonResponse({"error": "tweet_id required"}, status=400)
+        with connection.cursor() as cur:
+            cur.execute("INSERT OR IGNORE INTO pinned_tweets (tweet_id) VALUES (%s)", [tweet_id])
+        return JsonResponse({"ok": True})
+
+    if request.method == "DELETE":
+        with connection.cursor() as cur:
+            cur.execute("DELETE FROM pinned_tweets")
+        return JsonResponse({"ok": True})
+
+    return HttpResponseNotAllowed(["GET", "POST", "DELETE"])
+
+
+def unpin(request, tweet_id):
+    if request.method != "DELETE":
+        return HttpResponseNotAllowed(["DELETE"])
+    with connection.cursor() as cur:
+        cur.execute("DELETE FROM pinned_tweets WHERE tweet_id = %s", [tweet_id])
+    return JsonResponse({"ok": True})
+
+
+def analytics(request):
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT u.username, COALESCE(t.category, 'unclassified') c, count(*) n
+               FROM tweets t JOIN users u ON u.id = t.user_id
+               WHERE t.category IS NOT NULL
+               GROUP BY u.username, c"""
+        )
+        by_user: dict[str, dict[str, int]] = {}
+        for username, category, n in cur.fetchall():
+            by_user.setdefault(username, {})[category] = n
+
+    ordered_categories = sorted(CATEGORIES)
+    targets = [
+        {
+            "username": t,
+            "categories": [
+                {"value": c, "count": by_user.get(t, {}).get(c, 0)} for c in ordered_categories
+            ],
+            "total": sum(by_user.get(t, {}).values()),
+        }
+        for t in TARGETS
+    ]
+
+    return JsonResponse({"targets": targets, "categories": ordered_categories})
 
 
 def facets(request):
