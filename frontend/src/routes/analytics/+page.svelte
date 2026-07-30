@@ -3,6 +3,7 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import type { CoverageStat, MediaBackfillStat, ReplyDepthStat, TargetAnalytics } from '$lib/types';
 	import type { PageData } from './$types';
+	import { categoryLabel } from '$lib/categories';
 
 	let { data }: { data: PageData } = $props();
 
@@ -15,7 +16,7 @@
 		targetsByTotal(targets).flatMap((t) =>
 			t.categories
 				.filter((c) => c.count > 0)
-				.map((c) => ({ username: t.username, category: c.value, count: c.count }))
+				.map((c) => ({ username: t.username, category: categoryLabel(c.value!), count: c.count }))
 		);
 
 	// section 2 — collection coverage: % of profile tweets_count actually collected

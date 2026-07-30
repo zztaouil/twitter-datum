@@ -13,7 +13,7 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 <div class="grid min-h-screen grid-cols-1 md:grid-cols-[268px_1fr]">
-	<Sidebar categories={data.categories} />
+	<Sidebar categories={data.categories} authors={data.authors} />
 	<main class="flex flex-col gap-4 p-6 md:p-8">
 		{@render children()}
 	</main>

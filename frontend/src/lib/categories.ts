@@ -27,6 +27,17 @@ export function categoryStyle(category: string) {
 	return CATEGORY_STYLES[category] ?? FALLBACK;
 }
 
+const CATEGORY_LABELS_FR: Record<string, string> = {
+	'digital-influential': 'numérique influence',
+	'diplomatic-relational': 'diplomatique relationnel',
+	'religious-referential': 'référentiel religieux',
+	unclassified: 'non classé'
+};
+
+export function categoryLabel(category: string) {
+	return CATEGORY_LABELS_FR[category] ?? category;
+}
+
 const compactFormatter = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
 
 export function formatCompact(n: number) {

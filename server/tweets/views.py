@@ -29,7 +29,7 @@ def _pinned_ids() -> set[str]:
 def search(request):
     q = request.GET.get("q", "").strip()
     category = request.GET.get("category", "").strip()
-    author = request.GET.get("author", "").strip()
+    authors = [a.strip() for a in request.GET.getlist("author") if a.strip()]
     date_from = request.GET.get("from", "").strip()
     date_to = request.GET.get("to", "").strip()
     page = max(int(request.GET.get("page") or 1), 1)
@@ -43,9 +43,10 @@ def search(request):
             return JsonResponse({"error": "unknown category"}, status=400)
         where.append("COALESCE(t.category, 'unclassified') = %s")
         params.append(category)
-    if author:
-        where.append("u.username = %s")
-        params.append(author)
+    if authors:
+        placeholders = ", ".join(["%s"] * len(authors))
+        where.append(f"u.username IN ({placeholders})")
+        params.extend(authors)
     if date_from:
         where.append("t.created_at >= %s")
         params.append(date_from)

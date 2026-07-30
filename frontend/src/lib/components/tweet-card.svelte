@@ -5,7 +5,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import Pin from '@lucide/svelte/icons/pin';
 	import PinOff from '@lucide/svelte/icons/pin-off';
-	import { categoryStyle } from '$lib/categories';
+	import { categoryStyle, categoryLabel } from '$lib/categories';
 	import type { Tweet } from '$lib/types';
 
 	let { tweet, onTogglePin }: { tweet: Tweet; onTogglePin: (tweet: Tweet) => void } = $props();
@@ -34,7 +34,7 @@
 			</div>
 			<div class="flex flex-col items-end gap-1">
 				<div class="flex items-center gap-1">
-					<Badge class={style.badge}>{tweet.category}</Badge>
+					<Badge class={style.badge}>{categoryLabel(tweet.category)}</Badge>
 					<Button
 						variant="ghost"
 						size="icon-sm"
