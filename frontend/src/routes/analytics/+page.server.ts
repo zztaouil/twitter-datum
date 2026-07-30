@@ -2,19 +2,18 @@ import { PUBLIC_API_URL } from '$env/static/public';
 import type { CoverageStat, MediaBackfillStat, ReplyDepthStat, TargetAnalytics } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
+// ponytail: these queries can take a couple seconds on a cold cache — stream each
+// section in independently instead of blocking the whole page on the slowest one.
 export const load: PageServerLoad = async ({ fetch }) => {
-	const [analytics, coverage, media, replyDepth] = await Promise.all([
-		fetch(`${PUBLIC_API_URL}/api/analytics`).then((r) => r.json()),
-		fetch(`${PUBLIC_API_URL}/api/analytics/coverage`).then((r) => r.json()),
-		fetch(`${PUBLIC_API_URL}/api/analytics/media-backfill`).then((r) => r.json()),
-		fetch(`${PUBLIC_API_URL}/api/analytics/reply-depth`).then((r) => r.json())
-	]);
+	const getJson = (path: string) => fetch(`${PUBLIC_API_URL}${path}`).then((r) => r.json());
 
 	return {
-		targets: analytics.targets as TargetAnalytics[],
-		categories: analytics.categories as string[],
-		coverage: coverage.results as CoverageStat[],
-		media: media.results as MediaBackfillStat[],
-		replyDepth: replyDepth.results as ReplyDepthStat[]
+		analytics: getJson('/api/analytics') as Promise<{
+			targets: TargetAnalytics[];
+			categories: string[];
+		}>,
+		coverage: getJson('/api/analytics/coverage') as Promise<{ results: CoverageStat[] }>,
+		media: getJson('/api/analytics/media-backfill') as Promise<{ results: MediaBackfillStat[] }>,
+		replyDepth: getJson('/api/analytics/reply-depth') as Promise<{ results: ReplyDepthStat[] }>
 	};
 };

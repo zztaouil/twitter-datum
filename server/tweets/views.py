@@ -2,8 +2,14 @@ import json
 
 from django.db import connection, connections
 from django.http import HttpResponseNotAllowed, JsonResponse
+from django.views.decorators.cache import cache_page
 
 from src.config import TARGETS
+
+# ponytail: data.db only changes when the scraper runs, not per request —
+# cache the expensive analytics aggregations instead of recomputing every page load.
+# in-memory (LocMemCache, Django's zero-config default), so a runserver reload clears it.
+ANALYTICS_CACHE_SECONDS = 5 * 60
 
 CATEGORIES = {"digital-influential", "diplomatic-relational", "religious-referential", "unclassified"}
 MAX_PAGE_SIZE = 100
@@ -134,6 +140,7 @@ def unpin(request, tweet_id):
     return JsonResponse({"ok": True})
 
 
+@cache_page(ANALYTICS_CACHE_SECONDS)
 def analytics(request):
     with connection.cursor() as cur:
         cur.execute(
@@ -161,15 +168,21 @@ def analytics(request):
     return JsonResponse({"targets": targets, "categories": ordered_categories})
 
 
+@cache_page(ANALYTICS_CACHE_SECONDS)
 def coverage(request):
     # profile tweets_count vs. tweets actually collected, per target (see tools/monitor.ipynb)
+    # ponytail: scope the join to TARGETS up front instead of aggregating all 200k+ users
+    # then discarding everything but TARGETS in Python (2s -> ~0.1s)
+    placeholders = ", ".join(["%s"] * len(TARGETS))
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT u.username, u.tweets_count,
-                      COALESCE(SUM(CASE WHEN t.parent_tweet_id IS NULL THEN 1 ELSE 0 END), 0) AS own,
-                      COUNT(t.id) AS total
-               FROM users u LEFT JOIN tweets t ON t.user_id = u.id
-               GROUP BY u.id"""
+            f"""SELECT u.username, u.tweets_count,
+                       COALESCE(SUM(CASE WHEN t.parent_tweet_id IS NULL THEN 1 ELSE 0 END), 0) AS own,
+                       COUNT(t.id) AS total
+                FROM users u LEFT JOIN tweets t ON t.user_id = u.id
+                WHERE u.username IN ({placeholders})
+                GROUP BY u.id""",
+            TARGETS,
         )
         by_user = {row[0]: row[1:] for row in cur.fetchall()}
 
@@ -183,15 +196,19 @@ def coverage(request):
     return JsonResponse({"results": results})
 
 
+@cache_page(ANALYTICS_CACHE_SECONDS)
 def media_backfill(request):
     # media_type backfill progress per target (see tools/monitor.ipynb)
+    placeholders = ", ".join(["%s"] * len(TARGETS))
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT u.username,
-                      COALESCE(SUM(CASE WHEN t.media_type IS NOT NULL THEN 1 ELSE 0 END), 0) AS done,
-                      COUNT(t.id) AS total
-               FROM users u LEFT JOIN tweets t ON t.user_id = u.id
-               GROUP BY u.id"""
+            f"""SELECT u.username,
+                       COALESCE(SUM(CASE WHEN t.media_type IS NOT NULL THEN 1 ELSE 0 END), 0) AS done,
+                       COUNT(t.id) AS total
+                FROM users u LEFT JOIN tweets t ON t.user_id = u.id
+                WHERE u.username IN ({placeholders})
+                GROUP BY u.id""",
+            TARGETS,
         )
         by_user = {row[0]: row[1:] for row in cur.fetchall()}
 
@@ -203,6 +220,7 @@ def media_backfill(request):
     return JsonResponse({"results": results})
 
 
+@cache_page(ANALYTICS_CACHE_SECONDS)
 def reply_depth(request):
     # level-1 vs level-2 reply coverage per target's own tweets (see tools/monitor.ipynb)
     placeholders = ", ".join(["%s"] * len(TARGETS))

@@ -21,6 +21,7 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_tweets_category ON tweets(category);
 CREATE INDEX IF NOT EXISTS idx_tweets_created_at ON tweets(created_at);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 """
 
 
