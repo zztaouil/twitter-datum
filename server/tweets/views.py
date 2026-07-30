@@ -1,6 +1,8 @@
 from django.db import connection
 from django.http import JsonResponse
 
+from src.config import TARGETS
+
 CATEGORIES = {"digital-influential", "diplomatic-relational", "religious-referential", "unclassified"}
 MAX_PAGE_SIZE = 100
 
@@ -80,8 +82,16 @@ def facets(request):
             """SELECT u.username, u.fullname, count(*) n
                FROM tweets t JOIN users u ON u.id = t.user_id
                WHERE t.category IS NOT NULL
-               GROUP BY u.id ORDER BY n DESC"""
+               GROUP BY u.id"""
         )
-        authors = [{"username": u, "fullname": f, "count": n} for u, f, n in cur.fetchall()]
+        counts = {u: (f, n) for u, f, n in cur.fetchall()}
+
+    authors = sorted(
+        (
+            {"username": t, "fullname": counts.get(t, (t, 0))[0], "count": counts.get(t, (t, 0))[1]}
+            for t in TARGETS
+        ),
+        key=lambda a: -a["count"],
+    )
 
     return JsonResponse({"categories": categories, "authors": authors})
