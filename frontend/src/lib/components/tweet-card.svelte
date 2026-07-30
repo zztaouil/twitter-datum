@@ -5,9 +5,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import Pin from '@lucide/svelte/icons/pin';
 	import PinOff from '@lucide/svelte/icons/pin-off';
+	import { categoryStyle } from '$lib/categories';
 	import type { Tweet } from '$lib/types';
 
 	let { tweet, onTogglePin }: { tweet: Tweet; onTogglePin: (tweet: Tweet) => void } = $props();
+
+	const style = $derived(categoryStyle(tweet.category));
 
 	function formatDate(iso: string) {
 		return new Date(iso).toLocaleDateString('fr-FR', {
@@ -18,19 +21,20 @@
 	}
 </script>
 
-<Card.Root>
+<Card.Root class="relative">
+	<div class="absolute inset-y-0 left-0 w-1.5 {style.bar}"></div>
 	<Card.Header>
 		<div class="flex items-center gap-3">
 			<Avatar.Root>
 				<Avatar.Fallback>{tweet.username[0]?.toUpperCase()}</Avatar.Fallback>
 			</Avatar.Root>
 			<div class="flex flex-1 flex-col">
-				<span class="font-medium">{tweet.fullname}</span>
+				<span class="font-arabic font-bold">{tweet.fullname}</span>
 				<span class="text-muted-foreground text-sm">@{tweet.username}</span>
 			</div>
 			<div class="flex flex-col items-end gap-1">
 				<div class="flex items-center gap-1">
-					<Badge variant="secondary">{tweet.category}</Badge>
+					<Badge class={style.badge}>{tweet.category}</Badge>
 					<Button
 						variant="ghost"
 						size="icon-sm"
@@ -45,11 +49,11 @@
 						{/if}
 					</Button>
 				</div>
-				<span class="text-muted-foreground text-xs">{formatDate(tweet.created_at)}</span>
+				<span class="text-muted-foreground font-mono text-xs">{formatDate(tweet.created_at)}</span>
 			</div>
 		</div>
 	</Card.Header>
 	<Card.Content>
-		<p class="whitespace-pre-wrap">{tweet.text}</p>
+		<p class="font-arabic whitespace-pre-wrap leading-relaxed" dir="auto">{tweet.text}</p>
 	</Card.Content>
 </Card.Root>

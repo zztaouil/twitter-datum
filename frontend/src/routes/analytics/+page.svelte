@@ -31,6 +31,8 @@
 		[...rows].filter((r) => r.tweets > 0).sort((a, b) => b.l1_per_tweet - a.l1_per_tweet);
 </script>
 
+<h1 class="text-xl font-bold">Analyses</h1>
+
 <div class="flex flex-col gap-10">
 	<div class="flex flex-col gap-4">
 		<h2 class="text-sm font-medium">Répartition par catégorie</h2>

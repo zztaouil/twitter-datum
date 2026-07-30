@@ -3,6 +3,8 @@
 	import Sun from '@lucide/svelte/icons/sun';
 	import Moon from '@lucide/svelte/icons/moon';
 
+	let { class: className = '' }: { class?: string } = $props();
+
 	let dark = $state(typeof document !== 'undefined' && document.documentElement.classList.contains('dark'));
 
 	function toggle() {
@@ -12,7 +14,7 @@
 	}
 </script>
 
-<Button variant="outline" size="icon" onclick={toggle} aria-label="Changer de thème">
+<Button variant="outline" size="icon" class={className} onclick={toggle} aria-label="Changer de thème">
 	{#if dark}
 		<Sun class="size-4" />
 	{:else}

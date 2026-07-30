@@ -84,20 +84,11 @@
 	const loading = $derived(!!navigating.to);
 </script>
 
+<h1 class="text-xl font-bold">Recherche</h1>
+
 <div class="flex flex-col gap-2 rounded-lg border p-3">
 	<Input placeholder="Rechercher par contenu…" bind:value={query} oninput={onQueryInput} />
 	<div class="flex flex-wrap gap-2">
-		<Select.Root type="single" bind:value={category} onValueChange={() => applyFilters()}>
-			<Select.Trigger class="w-48">
-				{category === 'all' ? 'Toutes les catégories' : category}
-			</Select.Trigger>
-			<Select.Content>
-				<Select.Item value="all">Toutes les catégories</Select.Item>
-				{#each data.categories as c (c.value)}
-					<Select.Item value={c.value!}>{c.value} ({c.count})</Select.Item>
-				{/each}
-			</Select.Content>
-		</Select.Root>
 		<Select.Root type="single" bind:value={author} onValueChange={() => applyFilters()}>
 			<Select.Trigger class="w-48">
 				{author === 'all' ? 'Tous les auteurs' : `@${author}`}
@@ -139,11 +130,13 @@
 	{data.total} tweets
 </p>
 
-<div class="flex flex-col gap-3" class:opacity-50={loading}>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2" class:opacity-50={loading}>
 	{#each tweets as tweet (tweet.id)}
 		<TweetCard {tweet} onTogglePin={togglePin} />
 	{:else}
-		<p class="text-muted-foreground py-8 text-center">Aucun tweet ne correspond à vos filtres.</p>
+		<p class="text-muted-foreground py-8 text-center lg:col-span-2">
+			Aucun tweet ne correspond à vos filtres.
+		</p>
 	{/each}
 </div>
 

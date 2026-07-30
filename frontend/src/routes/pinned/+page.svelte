@@ -23,6 +23,8 @@
 	}
 </script>
 
+<h1 class="text-xl font-bold">Épinglés</h1>
+
 <div class="flex items-center justify-between">
 	<p class="text-muted-foreground text-sm">{tweets.length} tweets épinglés</p>
 	{#if tweets.length}
@@ -30,10 +32,12 @@
 	{/if}
 </div>
 
-<div class="flex flex-col gap-3">
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
 	{#each tweets as tweet (tweet.id)}
 		<TweetCard {tweet} onTogglePin={unpin} />
 	{:else}
-		<p class="text-muted-foreground py-8 text-center">Aucun tweet épinglé pour l'instant.</p>
+		<p class="text-muted-foreground py-8 text-center lg:col-span-2">
+			Aucun tweet épinglé pour l'instant.
+		</p>
 	{/each}
 </div>
