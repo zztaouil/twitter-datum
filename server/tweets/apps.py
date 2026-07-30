@@ -5,12 +5,13 @@ class TweetsConfig(AppConfig):
     name = 'tweets'
 
     def ready(self):
-        from django.db import connection
+        from django.db import connections
 
-        with connection.cursor() as cur:
+        # lives in the 'pins' db (server/db.sqlite3), not data.db — no cross-db FK possible
+        with connections['pins'].cursor() as cur:
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS pinned_tweets (
-                       tweet_id  TEXT PRIMARY KEY REFERENCES tweets(id),
+                       tweet_id  TEXT PRIMARY KEY,
                        pinned_at TEXT DEFAULT CURRENT_TIMESTAMP
                    )"""
             )

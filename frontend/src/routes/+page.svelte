@@ -35,7 +35,7 @@
 		}
 	}
 
-	const df = new DateFormatter('en-US', { dateStyle: 'medium' });
+	const df = new DateFormatter('fr-FR', { dateStyle: 'medium' });
 
 	let query = $state(data.filters.q);
 	let category = $state(data.filters.category || 'all');
@@ -57,7 +57,7 @@
 	});
 
 	const rangeLabel = $derived.by(() => {
-		if (!dateRange.start) return 'All dates';
+		if (!dateRange.start) return 'Toutes les dates';
 		const start = df.format(dateRange.start.toDate(getLocalTimeZone()));
 		if (!dateRange.end) return start;
 		return `${start} – ${df.format(dateRange.end.toDate(getLocalTimeZone()))}`;
@@ -85,14 +85,14 @@
 </script>
 
 <div class="flex flex-col gap-2 rounded-lg border p-3">
-	<Input placeholder="Search by content…" bind:value={query} oninput={onQueryInput} />
+	<Input placeholder="Rechercher par contenu…" bind:value={query} oninput={onQueryInput} />
 	<div class="flex flex-wrap gap-2">
 		<Select.Root type="single" bind:value={category} onValueChange={() => applyFilters()}>
 			<Select.Trigger class="w-48">
-				{category === 'all' ? 'All categories' : category}
+				{category === 'all' ? 'Toutes les catégories' : category}
 			</Select.Trigger>
 			<Select.Content>
-				<Select.Item value="all">All categories</Select.Item>
+				<Select.Item value="all">Toutes les catégories</Select.Item>
 				{#each data.categories as c (c.value)}
 					<Select.Item value={c.value!}>{c.value} ({c.count})</Select.Item>
 				{/each}
@@ -100,10 +100,10 @@
 		</Select.Root>
 		<Select.Root type="single" bind:value={author} onValueChange={() => applyFilters()}>
 			<Select.Trigger class="w-48">
-				{author === 'all' ? 'All authors' : `@${author}`}
+				{author === 'all' ? 'Tous les auteurs' : `@${author}`}
 			</Select.Trigger>
 			<Select.Content>
-				<Select.Item value="all">All authors</Select.Item>
+				<Select.Item value="all">Tous les auteurs</Select.Item>
 				{#each data.authors as a (a.username)}
 					<Select.Item value={a.username!}>@{a.username} ({a.count})</Select.Item>
 				{/each}
@@ -122,7 +122,7 @@
 				<Button
 					variant="ghost"
 					size="icon"
-					aria-label="Clear dates"
+					aria-label="Effacer les dates"
 					onclick={() => {
 						dateRange = { start: undefined, end: undefined };
 						applyFilters();
@@ -143,7 +143,7 @@
 	{#each tweets as tweet (tweet.id)}
 		<TweetCard {tweet} onTogglePin={togglePin} />
 	{:else}
-		<p class="text-muted-foreground py-8 text-center">No tweets match your filters.</p>
+		<p class="text-muted-foreground py-8 text-center">Aucun tweet ne correspond à vos filtres.</p>
 	{/each}
 </div>
 
@@ -154,15 +154,15 @@
 			disabled={data.page <= 1}
 			onclick={() => applyFilters(String(data.page - 1))}
 		>
-			Previous
+			Précédent
 		</Button>
-		<span class="text-muted-foreground text-sm">Page {data.page} of {totalPages}</span>
+		<span class="text-muted-foreground text-sm">Page {data.page} sur {totalPages}</span>
 		<Button
 			variant="outline"
 			disabled={data.page >= totalPages}
 			onclick={() => applyFilters(String(data.page + 1))}
 		>
-			Next
+			Suivant
 		</Button>
 	</div>
 {/if}

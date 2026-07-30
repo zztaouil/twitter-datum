@@ -1,7 +1,10 @@
 <script lang="ts">
 	import './layout.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/favicon.png';
 	import NavBar from '$lib/components/nav-bar.svelte';
+	import { setPlotDefaults } from 'svelteplot';
+
+	setPlotDefaults({ locale: 'fr-FR' });
 
 	let { children } = $props();
 </script>

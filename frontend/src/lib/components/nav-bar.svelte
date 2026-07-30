@@ -4,9 +4,9 @@
 	import ThemeToggle from '$lib/components/theme-toggle.svelte';
 
 	const links = [
-		{ href: '/', label: 'Search' },
-		{ href: '/pinned', label: 'Pinned' },
-		{ href: '/analytics', label: 'Analytics' }
+		{ href: '/', label: 'Recherche' },
+		{ href: '/pinned', label: 'Épinglés' },
+		{ href: '/analytics', label: 'Analyses' }
 	];
 </script>
 

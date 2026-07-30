@@ -12,7 +12,7 @@
 	}
 </script>
 
-<Button variant="outline" size="icon" onclick={toggle} aria-label="Toggle theme">
+<Button variant="outline" size="icon" onclick={toggle} aria-label="Changer de thème">
 	{#if dark}
 		<Sun class="size-4" />
 	{:else}

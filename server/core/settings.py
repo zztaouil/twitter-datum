@@ -55,7 +55,12 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR.parent / 'data.db',
-    }
+    },
+    # separate, writable db for app state (pins) — the scraped data.db stays read-only
+    'pins': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    },
 }
 
 

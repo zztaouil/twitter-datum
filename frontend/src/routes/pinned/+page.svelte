@@ -24,9 +24,9 @@
 </script>
 
 <div class="flex items-center justify-between">
-	<p class="text-muted-foreground text-sm">{tweets.length} pinned tweets</p>
+	<p class="text-muted-foreground text-sm">{tweets.length} tweets épinglés</p>
 	{#if tweets.length}
-		<Button variant="outline" size="sm" onclick={unpinAll}>Unpin all</Button>
+		<Button variant="outline" size="sm" onclick={unpinAll}>Tout désépingler</Button>
 	{/if}
 </div>
 
@@ -34,6 +34,6 @@
 	{#each tweets as tweet (tweet.id)}
 		<TweetCard {tweet} onTogglePin={unpin} />
 	{:else}
-		<p class="text-muted-foreground py-8 text-center">No pinned tweets yet.</p>
+		<p class="text-muted-foreground py-8 text-center">Aucun tweet épinglé pour l'instant.</p>
 	{/each}
 </div>

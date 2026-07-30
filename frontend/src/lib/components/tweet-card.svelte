@@ -10,7 +10,7 @@
 	let { tweet, onTogglePin }: { tweet: Tweet; onTogglePin: (tweet: Tweet) => void } = $props();
 
 	function formatDate(iso: string) {
-		return new Date(iso).toLocaleDateString(undefined, {
+		return new Date(iso).toLocaleDateString('fr-FR', {
 			year: 'numeric',
 			month: 'short',
 			day: 'numeric'
@@ -35,7 +35,7 @@
 						variant="ghost"
 						size="icon-sm"
 						class={tweet.pinned ? 'text-primary hover:text-primary' : ''}
-						aria-label={tweet.pinned ? 'Unpin tweet' : 'Pin tweet'}
+						aria-label={tweet.pinned ? 'Désépingler le tweet' : 'Épingler le tweet'}
 						onclick={() => onTogglePin(tweet)}
 					>
 						{#if tweet.pinned}
