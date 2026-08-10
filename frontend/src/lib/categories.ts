@@ -38,6 +38,27 @@ export function categoryLabel(category: string) {
 	return CATEGORY_LABELS_FR[category] ?? category;
 }
 
+export function comboLabel(combo: string) {
+	if (combo === 'unclassified') return categoryLabel(combo);
+	return combo
+		.split(',')
+		.map((c) => categoryLabel(c.trim()))
+		.join(' + ');
+}
+
+// fixed color per category combo, independent of any target's data — keeps a combo's
+// color stable across bars (see tools/monitor.ipynb's COMBO_COLORS). "unclassified" is
+// omitted on purpose: it carries no insight and would just eat space in every bar.
+export const COMBO_COLORS: Record<string, string> = {
+	'digital-influential': '#2a78d6',
+	'diplomatic-relational': '#eb6834',
+	'religious-referential': '#1baf7a',
+	'digital-influential,diplomatic-relational': '#eda100',
+	'diplomatic-relational,religious-referential': '#e87ba4',
+	'digital-influential,religious-referential': '#008300',
+	'digital-influential,diplomatic-relational,religious-referential': '#4a3aa7'
+};
+
 const compactFormatter = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
 
 export function formatCompact(n: number) {

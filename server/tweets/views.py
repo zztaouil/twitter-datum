@@ -1,3 +1,4 @@
+import itertools
 import json
 from collections import Counter
 
@@ -44,14 +45,19 @@ def search(request):
     where = ["(t.category IS NOT NULL)"]
     params: list = []
 
-    # tweets store their categories comma-separated (e.g. "religious-referential,digital-influential");
-    # requiring a LIKE hit per selected category ANDs them together, so picking several
-    # finds tweets that combine those aspects rather than tweets matching any one of them.
-    for category in categories:
-        if category not in CATEGORIES:
-            return JsonResponse({"error": "unknown category"}, status=400)
-        where.append("(',' || COALESCE(t.category, 'unclassified') || ',') LIKE %s")
-        params.append(f"%,{category},%")
+    # exact combination match: selecting "a" alone excludes tweets tagged "a,b", and
+    # selecting "a"+"b" matches only tweets tagged with exactly those two (any order) —
+    # contain every selected category AND carry no extra ones.
+    if categories:
+        for category in categories:
+            if category not in CATEGORIES:
+                return JsonResponse({"error": "unknown category"}, status=400)
+        cat_field = "COALESCE(t.category, 'unclassified')"
+        for category in categories:
+            where.append(f"(',' || {cat_field} || ',') LIKE %s")
+            params.append(f"%,{category},%")
+        where.append(f"(LENGTH({cat_field}) - LENGTH(REPLACE({cat_field}, ',', '')) + 1) = %s")
+        params.append(len(categories))
     if authors:
         placeholders = ", ".join(["%s"] * len(authors))
         where.append(f"u.username IN ({placeholders})")
@@ -183,6 +189,36 @@ def analytics(request):
     ]
 
     return JsonResponse({"targets": targets, "categories": ordered_categories})
+
+
+@cache_page(ANALYTICS_CACHE_SECONDS)
+def category_combos(request):
+    # like `analytics` but a multi-category tweet counts once for its exact combo
+    # instead of once per category (see tools/monitor.ipynb's combo breakdown chart)
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT u.username, COALESCE(t.category, 'unclassified')
+               FROM tweets t JOIN users u ON u.id = t.user_id
+               WHERE t.category IS NOT NULL"""
+        )
+        by_user: dict[str, Counter] = {}
+        for username, category in cur.fetchall():
+            combo = category if category == "unclassified" else ",".join(sorted(c.strip() for c in category.split(",")))
+            by_user.setdefault(username, Counter())[combo] += 1
+
+    singles = sorted(CATEGORIES - {"unclassified"})
+    ordered_combos = ["unclassified"] + [
+        ",".join(c) for r in range(1, len(singles) + 1) for c in itertools.combinations(singles, r)
+    ]
+    results = [
+        {
+            "username": t,
+            "combos": [{"value": c, "count": by_user.get(t, {}).get(c, 0)} for c in ordered_combos],
+            "total": sum(by_user.get(t, {}).values()),
+        }
+        for t in TARGETS
+    ]
+    return JsonResponse({"results": results, "combos": ordered_combos})
 
 
 @cache_page(ANALYTICS_CACHE_SECONDS)

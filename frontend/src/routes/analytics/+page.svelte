@@ -1,23 +1,58 @@
 <script lang="ts">
 	import { Plot, BarX, RuleX } from 'svelteplot';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import type { CoverageStat, MediaBackfillStat, ReplyDepthStat, TargetAnalytics } from '$lib/types';
+	import type {
+		CategoryComboStat,
+		CoverageStat,
+		MediaBackfillStat,
+		ReplyDepthStat,
+		TargetAnalytics
+	} from '$lib/types';
 	import type { PageData } from './$types';
-	import { categoryLabel } from '$lib/categories';
+	import { categoryLabel, comboLabel, COMBO_COLORS } from '$lib/categories';
 
 	let { data }: { data: PageData } = $props();
 
 	const barHeight = (n: number) => n * 18 + 60;
 
-	// section 1 — category distribution (100% stacked, biggest targets first)
+	// floating hover tooltip shared by any chart that passes a `detail` field on its rows
+	let tooltip = $state<{ x: number; y: number; text: string } | null>(null);
+	const showTooltip = (e: Event, d: { detail: string }) => {
+		const { clientX, clientY } = e as PointerEvent;
+		tooltip = { x: clientX, y: clientY, text: d.detail };
+	};
+	const hideTooltip = () => {
+		tooltip = null;
+	};
+
+	// section 1 — category-combination breakdown (a multi-category tweet counts once for
+	// its exact combo, not once per category); hover a bar for the full per-target detail
+	const combosByTotal = (targets: CategoryComboStat[]) =>
+		[...targets].filter((t) => t.total > 0).sort((a, b) => b.total - a.total);
+	const comboRows = (targets: CategoryComboStat[]) =>
+		combosByTotal(targets).flatMap((t) => {
+			const present = t.combos
+				.filter((c) => c.count > 0 && c.value !== 'unclassified')
+				.sort((a, b) => b.count - a.count);
+			const total = present.reduce((sum, c) => sum + c.count, 0);
+			const detail = [
+				`${t.username} — ${total} tweets classés`,
+				...present.map((c) => `${comboLabel(c.value!)} : ${c.count} (${((c.count / total) * 100).toFixed(1)}%)`)
+			].join('\n');
+			return present.map((c) => ({ username: t.username, combo: comboLabel(c.value!), count: c.count, detail }));
+		});
+
+	// section 1b — category distribution (100% stacked, biggest targets first)
 	const targetsByTotal = (targets: TargetAnalytics[]) =>
 		[...targets].filter((t) => t.total > 0).sort((a, b) => b.total - a.total);
+	// "unclassified" is excluded everywhere below — it's not a real category, just noise
 	const categoryRows = (targets: TargetAnalytics[]) =>
 		targetsByTotal(targets).flatMap((t) =>
 			t.categories
-				.filter((c) => c.count > 0)
+				.filter((c) => c.count > 0 && c.value !== 'unclassified')
 				.map((c) => ({ username: t.username, category: categoryLabel(c.value!), count: c.count }))
 		);
+
 
 	// section 2 — collection coverage: % of profile tweets_count actually collected
 	const coverageSorted = (rows: CoverageStat[]) =>
@@ -35,6 +70,33 @@
 <h1 class="text-xl font-bold">Analyses</h1>
 
 <div class="flex flex-col gap-10">
+	<div class="flex flex-col gap-4">
+		<h2 class="text-sm font-medium">Combinaisons de catégories par cible</h2>
+		<p class="text-muted-foreground text-xs">survolez une colonne pour le détail par combinaison</p>
+		{#await data.combos}
+			<Skeleton class="h-64 w-full" />
+		{:then combos}
+			{@const targets = combosByTotal(combos.results)}
+			<Plot
+				y={{ domain: targets.map((t) => t.username) }}
+				x={{ percent: true, label: '% des tweets classés' }}
+				color={{ legend: true, domain: Object.keys(COMBO_COLORS).map(comboLabel), range: Object.values(COMBO_COLORS) }}
+				height={barHeight(targets.length)}
+			>
+				<BarX
+					data={comboRows(combos.results)}
+					y="username"
+					x="count"
+					fill="combo"
+					stack={{ offset: 'normalize', order: null, reverse: false }}
+					onpointerenter={showTooltip}
+					onpointermove={showTooltip}
+					onpointerleave={hideTooltip}
+				/>
+			</Plot>
+		{/await}
+	</div>
+
 	<div class="flex flex-col gap-4">
 		<h2 class="text-sm font-medium">Répartition par catégorie</h2>
 		{#await data.analytics}
@@ -118,3 +180,12 @@
 		{/await}
 	</div>
 </div>
+
+{#if tooltip}
+	<div
+		class="bg-popover text-popover-foreground pointer-events-none fixed z-50 rounded-md border px-2 py-1.5 text-xs whitespace-pre-line shadow-md"
+		style="left: {tooltip.x + 12}px; top: {tooltip.y + 12}px;"
+	>
+		{tooltip.text}
+	</div>
+{/if}

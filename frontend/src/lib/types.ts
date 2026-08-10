@@ -25,6 +25,12 @@ export interface TargetAnalytics {
 	total: number;
 }
 
+export interface CategoryComboStat {
+	username: string;
+	combos: Facet[];
+	total: number;
+}
+
 export interface CoverageStat {
 	username: string;
 	tweets_count: number;

@@ -34,7 +34,8 @@
 		page.url.pathname === '/' ? page.url.searchParams.getAll('category') : []
 	);
 
-	// picking several categories ANDs them — finds tweets that combine those aspects
+	// each selected category matches tweets classified as exactly that category —
+	// picking several is an OR (any exact match), not tweets combining several aspects
 	function categoryHref(value: string) {
 		const params = currentParams();
 		params.delete('page');
