@@ -30,18 +30,19 @@
 	];
 
 	const total = $derived(categories.reduce((sum, c) => sum + c.count, 0));
-	const activeCategory = $derived(
-		page.url.pathname === '/' ? page.url.searchParams.get('category') : null
+	const activeCategories = $derived(
+		page.url.pathname === '/' ? page.url.searchParams.getAll('category') : []
 	);
 
+	// picking several categories ANDs them — finds tweets that combine those aspects
 	function categoryHref(value: string) {
 		const params = currentParams();
 		params.delete('page');
-		if (activeCategory === value) {
-			params.delete('category');
-		} else {
-			params.set('category', value);
-		}
+		params.delete('category');
+		const next = activeCategories.includes(value)
+			? activeCategories.filter((c) => c !== value)
+			: [...activeCategories, value];
+		for (const c of next) params.append('category', c);
 		const qs = params.toString();
 		return qs ? `${resolve('/')}?${qs}` : resolve('/');
 	}
@@ -123,11 +124,14 @@
 	<div>
 		<div class="mb-2.5 text-[10.5px] font-semibold tracking-wide text-[#797C86] uppercase">
 			Catégories
+			{#if activeCategories.length > 1}
+				<span class="normal-case text-[#8B8E98]">· combinées</span>
+			{/if}
 		</div>
 		<div class="flex flex-col gap-1.5">
 			{#each categories as c (c.value)}
 				{@const style = categoryStyle(c.value!)}
-				{@const active = activeCategory === c.value}
+				{@const active = activeCategories.includes(c.value!)}
 				<a
 					href={categoryHref(c.value!)}
 					class="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-white/5 {active

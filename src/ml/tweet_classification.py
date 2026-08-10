@@ -2,7 +2,10 @@
 
 Same weighted keyword scoring as tweet_classification.ipynb, applied to every
 tweet from every target instead of a 50-per-target sample. Writes a CSV with
-columns: tweet_id, category.
+columns: tweet_id, category. A tweet scoring positively on more than one
+category gets all of them, comma-separated and ranked strongest first (e.g.
+"religious-referential,digital-influential") — that's how tweets combining
+multiple aspects of discord show up downstream.
 """
 import csv
 import math
@@ -94,6 +97,11 @@ ALL_KEYWORD_STEMS = {
 }
 
 
+def pick_categories(scores: dict[str, float]) -> str:
+    hits = sorted((c for c in scores if scores[c] > 0), key=lambda c: -scores[c])
+    return ",".join(hits) if hits else "unclassified"
+
+
 def load_tweets(conn: sqlite3.Connection) -> list[dict]:
     rows = []
     for target in TARGETS:
@@ -146,8 +154,7 @@ def classify(rows: list[dict]) -> list[dict]:
             cat: sum(counts[t] * idf[lang].get(t, 0.0) for t in STEMMED_KEYWORDS[cat][lang]) / denom
             for cat in CATEGORIES
         }
-        best = max(scores, key=lambda c: scores[c])
-        r["category"] = best if scores[best] > 0 else "unclassified"
+        r["category"] = pick_categories(scores)
     return rows
 
 
@@ -175,6 +182,8 @@ def _selfcheck():
     assert stem_tokens("fasting", "en") == stem_tokens("fasted", "en") == ["fast"]
     # legitimate root-shared Arabic match must survive the guard (not a collision)
     assert "قرر" in stem_tokens("قرار", "ar")
+    assert pick_categories({"a": 0.0, "b": 0.0}) == "unclassified"
+    assert pick_categories({"a": 2.0, "b": 1.0, "c": 0.0}) == "a,b"
 
 
 if __name__ == "__main__":

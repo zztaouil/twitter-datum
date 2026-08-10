@@ -8,7 +8,7 @@ export interface Tweet {
 	view_count: number;
 	username: string;
 	fullname: string;
-	category: string;
+	categories: string[];
 	pinned?: boolean;
 }
 

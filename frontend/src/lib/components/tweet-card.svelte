@@ -10,7 +10,8 @@
 
 	let { tweet, onTogglePin }: { tweet: Tweet; onTogglePin: (tweet: Tweet) => void } = $props();
 
-	const style = $derived(categoryStyle(tweet.category));
+	// categories are ranked strongest-match first — use it for the accent bar
+	const style = $derived(categoryStyle(tweet.categories[0]));
 
 	function formatDate(iso: string) {
 		return new Date(iso).toLocaleDateString('fr-FR', {
@@ -33,8 +34,10 @@
 				<span class="text-muted-foreground text-sm">@{tweet.username}</span>
 			</div>
 			<div class="flex flex-col items-end gap-1">
-				<div class="flex items-center gap-1">
-					<Badge class={style.badge}>{categoryLabel(tweet.category)}</Badge>
+				<div class="flex flex-wrap items-center justify-end gap-1">
+					{#each tweet.categories as category (category)}
+						<Badge class={categoryStyle(category).badge}>{categoryLabel(category)}</Badge>
+					{/each}
 					<Button
 						variant="ghost"
 						size="icon-sm"

@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 
 from django.db import connection, connections
 from django.http import HttpResponseNotAllowed, JsonResponse
@@ -20,6 +21,11 @@ def _fts_match(q: str) -> str:
     return " ".join('"' + term.replace('"', '""') + '"*' for term in q.split())
 
 
+def _explode_categories(results: list[dict]) -> None:
+    for r in results:
+        r["categories"] = r.pop("category").split(",")
+
+
 def _pinned_ids() -> set[str]:
     with connections["pins"].cursor() as cur:
         cur.execute("SELECT tweet_id FROM pinned_tweets")
@@ -28,7 +34,7 @@ def _pinned_ids() -> set[str]:
 
 def search(request):
     q = request.GET.get("q", "").strip()
-    category = request.GET.get("category", "").strip()
+    categories = [c.strip() for c in request.GET.getlist("category") if c.strip()]
     authors = [a.strip() for a in request.GET.getlist("author") if a.strip()]
     date_from = request.GET.get("from", "").strip()
     date_to = request.GET.get("to", "").strip()
@@ -38,11 +44,14 @@ def search(request):
     where = ["(t.category IS NOT NULL)"]
     params: list = []
 
-    if category:
+    # tweets store their categories comma-separated (e.g. "religious-referential,digital-influential");
+    # requiring a LIKE hit per selected category ANDs them together, so picking several
+    # finds tweets that combine those aspects rather than tweets matching any one of them.
+    for category in categories:
         if category not in CATEGORIES:
             return JsonResponse({"error": "unknown category"}, status=400)
-        where.append("COALESCE(t.category, 'unclassified') = %s")
-        params.append(category)
+        where.append("(',' || COALESCE(t.category, 'unclassified') || ',') LIKE %s")
+        params.append(f"%,{category},%")
     if authors:
         placeholders = ", ".join(["%s"] * len(authors))
         where.append(f"u.username IN ({placeholders})")
@@ -82,6 +91,7 @@ def search(request):
         ]
         results = [dict(zip(columns, row)) for row in cur.fetchall()]
 
+    _explode_categories(results)
     pinned_ids = _pinned_ids()
     for r in results:
         r["pinned"] = r["id"] in pinned_ids
@@ -114,6 +124,7 @@ def pins(request):
             ]
             by_id = {row[0]: dict(zip(columns, row)) for row in cur.fetchall()}
 
+        _explode_categories(by_id.values())
         results = [by_id[i] for i in pinned_ids if i in by_id]
         return JsonResponse({"results": results})
 
@@ -145,14 +156,19 @@ def unpin(request, tweet_id):
 def analytics(request):
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT u.username, COALESCE(t.category, 'unclassified') c, count(*) n
+            """SELECT u.username, COALESCE(t.category, 'unclassified')
                FROM tweets t JOIN users u ON u.id = t.user_id
-               WHERE t.category IS NOT NULL
-               GROUP BY u.username, c"""
+               WHERE t.category IS NOT NULL"""
         )
-        by_user: dict[str, dict[str, int]] = {}
-        for username, category, n in cur.fetchall():
-            by_user.setdefault(username, {})[category] = n
+        # a tweet with several categories counts once per category here (so the
+        # per-target bars show every aspect it touches) but once in `tweet_totals`
+        by_user: dict[str, Counter] = {}
+        tweet_totals: Counter = Counter()
+        for username, category in cur.fetchall():
+            tweet_totals[username] += 1
+            counts = by_user.setdefault(username, Counter())
+            for c in category.split(","):
+                counts[c] += 1
 
     ordered_categories = sorted(CATEGORIES)
     targets = [
@@ -161,7 +177,7 @@ def analytics(request):
             "categories": [
                 {"value": c, "count": by_user.get(t, {}).get(c, 0)} for c in ordered_categories
             ],
-            "total": sum(by_user.get(t, {}).values()),
+            "total": tweet_totals.get(t, 0),
         }
         for t in TARGETS
     ]
@@ -275,10 +291,13 @@ def reply_depth(request):
 def facets(request):
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT COALESCE(category, 'unclassified') AS c, count(*)
-               FROM tweets WHERE category IS NOT NULL GROUP BY c ORDER BY c"""
+            """SELECT COALESCE(category, 'unclassified')
+               FROM tweets WHERE category IS NOT NULL"""
         )
-        categories = [{"value": c, "count": n} for c, n in cur.fetchall()]
+        cat_counts: Counter = Counter()
+        for (c,) in cur.fetchall():
+            cat_counts.update(c.split(","))
+        categories = [{"value": c, "count": n} for c, n in sorted(cat_counts.items())]
 
         cur.execute(
             """SELECT u.username, u.fullname, count(*) n

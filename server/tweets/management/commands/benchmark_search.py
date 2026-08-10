@@ -32,8 +32,8 @@ class Command(BaseCommand):
                 where = ["t.category IS NOT NULL"]
                 params = []
                 if category:
-                    where.append("COALESCE(t.category,'unclassified') = %s")
-                    params.append(category)
+                    where.append("(',' || COALESCE(t.category,'unclassified') || ',') LIKE %s")
+                    params.append(f"%,{category},%")
                 if author:
                     where.append("u.username = %s")
                     params.append(author)

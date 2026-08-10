@@ -13,3 +13,8 @@ out/
 data.db
 
 .env
+
+.claude/skills/ux-ui-auditor
+
+audit/
+tweet_classifications.csv
