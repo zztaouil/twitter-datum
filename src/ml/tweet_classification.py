@@ -15,6 +15,7 @@ import sqlite3
 import sys
 import time
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, PROJECT_ROOT)
@@ -23,12 +24,12 @@ from langdetect import DetectorFactory, LangDetectException, detect
 from nltk.stem import ISRIStemmer, SnowballStemmer
 
 from src.config import TARGETS
-from src.ml.tm_reference import TOPIC_KEYWORDS
+from src.ml.tm_reference import CONFOUND_PHRASES, TOPIC_KEYWORDS
 
 DetectorFactory.seed = 0
 
 CATEGORIES = list(TOPIC_KEYWORDS.keys())
-STEMMERS = {"ar": ISRIStemmer(), "fr": SnowballStemmer("french"), "en": SnowballStemmer("english")}
+STEMMERS = {"ar": ISRIStemmer(), "en": SnowballStemmer("english")}
 
 # Guard against stemmer over-collapsing: e.g. "Fasting" -> "fast" collides with the
 # unrelated common word "fast" (speed). A real inflection always has the stemmer
@@ -63,9 +64,30 @@ def detect_lang(cleaned: str) -> str:
     return code if code in STEMMERS else "other"
 
 
+def _normalize(text: str, lang: str) -> str:
+    return AR_ALEF_RE.sub("ا", AR_DIACRITICS_RE.sub("", text)) if lang == "ar" else text.lower()
+
+
+def _strip_confounds(raw_tokens: list[str], lang: str) -> list[str]:
+    phrases = CONFOUND_PHRASES.get(lang)
+    if not phrases:
+        return raw_tokens
+    max_n = max(len(p) for p in phrases)
+    out = []
+    i = 0
+    while i < len(raw_tokens):
+        for n in range(min(max_n, len(raw_tokens) - i), 0, -1):
+            if tuple(raw_tokens[i : i + n]) in phrases:
+                i += n
+                break
+        else:
+            out.append(raw_tokens[i])
+            i += 1
+    return out
+
+
 def stem_tokens(cleaned: str, lang: str) -> list[str]:
-    text = AR_ALEF_RE.sub("ا", AR_DIACRITICS_RE.sub("", cleaned)) if lang == "ar" else cleaned.lower()
-    raw_tokens = re.findall(r"\w+", text, re.UNICODE)
+    raw_tokens = _strip_confounds(re.findall(r"\w+", _normalize(cleaned, lang), re.UNICODE), lang)
     stem = STEMMERS[lang].stem
     stems = []
     for t in raw_tokens:
@@ -76,25 +98,35 @@ def stem_tokens(cleaned: str, lang: str) -> list[str]:
     return stems
 
 
+# Multi-word/hyphenated keywords (e.g. "Temple Mount", "المسجد الأقصى") must match as a
+# phrase: every component stem present in the tweet, not just the first word's stem.
 STEMMED_KEYWORDS = {
-    cat: {lang: {stem_tokens(w, lang)[0] for w in words} for lang, words in langs.items()}
+    cat: {lang: {frozenset(stem_tokens(w, lang)) for w in words} for lang, words in langs.items()}
     for cat, langs in TOPIC_KEYWORDS.items()
 }
 _stem_keyword_lens: dict[str, dict[str, int]] = {lang: {} for lang in STEMMERS}
 for _langs in TOPIC_KEYWORDS.values():
     for _lang, _words in _langs.items():
         for _w in _words:
-            _s = stem_tokens(_w, _lang)[0]
-            _lens = _stem_keyword_lens[_lang]
-            _lens[_s] = min(_lens.get(_s, len(_w)), len(_w))
+            for _t in re.findall(r"\w+", _normalize(_w, _lang), re.UNICODE):
+                _s = STEMMERS[_lang].stem(_t)
+                _lens = _stem_keyword_lens[_lang]
+                _lens[_s] = min(_lens.get(_s, len(_t)), len(_t))
 for _lang, _lens in _stem_keyword_lens.items():
     for _s, _shortest_keyword_len in _lens.items():
         if _shortest_keyword_len > len(_s):
             STEM_NEEDS_INFLECTION[_lang].add(_s)
 
 ALL_KEYWORD_STEMS = {
-    lang: set().union(*(STEMMED_KEYWORDS[cat][lang] for cat in CATEGORIES)) for lang in STEMMERS
+    lang: {s for cat in CATEGORIES for phrase in STEMMED_KEYWORDS[cat][lang] for s in phrase}
+    for lang in STEMMERS
 }
+
+
+def phrase_weight(phrase: frozenset[str], counts: Counter, idf_lang: dict[str, float]) -> float:
+    if not all(t in counts for t in phrase):
+        return 0.0
+    return min(counts[t] for t in phrase) * sum(idf_lang.get(t, 0.0) for t in phrase)
 
 
 def pick_categories(scores: dict[str, float]) -> str:
@@ -114,24 +146,29 @@ def load_tweets(conn: sqlite3.Connection) -> list[dict]:
     return rows
 
 
+def _prep_row(r: dict) -> dict:
+    r["cleaned"] = clean_text(r["text"])
+    r["lang"] = detect_lang(r["cleaned"])
+    if r["lang"] in STEMMERS:
+        r["tokens"] = stem_tokens(r["cleaned"], r["lang"])
+    return r
+
+
 def classify(rows: list[dict]) -> list[dict]:
     last_report = time.monotonic()
-    processed = 0
+    prepped = []
     try:
-        for i, r in enumerate(rows, 1):
-            r["cleaned"] = clean_text(r["text"])
-            r["lang"] = detect_lang(r["cleaned"])
-            processed = i
-            now = time.monotonic()
-            if now - last_report >= 60:
-                print(f"  processed {i}/{len(rows)}")
-                last_report = now
+        with ProcessPoolExecutor() as pool:
+            for i, r in enumerate(pool.map(_prep_row, rows, chunksize=200), 1):
+                prepped.append(r)
+                now = time.monotonic()
+                if now - last_report >= 60:
+                    print(f"  processed {i}/{len(rows)}")
+                    last_report = now
     except KeyboardInterrupt:
-        print(f"interrupted after {processed}/{len(rows)}, classifying what's done so far")
+        print(f"interrupted after {len(prepped)}/{len(rows)}, classifying what's done so far")
 
-    rows = [r for r in rows[:processed] if r["lang"] in STEMMERS]
-    for r in rows:
-        r["tokens"] = stem_tokens(r["cleaned"], r["lang"])
+    rows = [r for r in prepped if r["lang"] in STEMMERS]
 
     n_lang = Counter(r["lang"] for r in rows)
     df_counts = {lang: Counter() for lang in STEMMERS}
@@ -151,7 +188,7 @@ def classify(rows: list[dict]) -> list[dict]:
         counts = Counter(tokens)
         denom = math.log(2 + len(tokens))
         scores = {
-            cat: sum(counts[t] * idf[lang].get(t, 0.0) for t in STEMMED_KEYWORDS[cat][lang]) / denom
+            cat: sum(phrase_weight(p, counts, idf[lang]) for p in STEMMED_KEYWORDS[cat][lang]) / denom
             for cat in CATEGORIES
         }
         r["category"] = pick_categories(scores)
@@ -184,6 +221,16 @@ def _selfcheck():
     assert "قرر" in stem_tokens("قرار", "ar")
     assert pick_categories({"a": 0.0, "b": 0.0}) == "unclassified"
     assert pick_categories({"a": 2.0, "b": 1.0, "c": 0.0}) == "a,b"
+    # multi-word keyword ("Temple Mount") must require every component stem, not just the first
+    phrase = frozenset(stem_tokens("Temple Mount", "en"))
+    assert len(phrase) == 2
+    idf_lang = {t: 1.0 for t in phrase}
+    assert phrase_weight(phrase, Counter(["templ", "mount"]), idf_lang) == 2.0
+    assert phrase_weight(phrase, Counter(["templ"]), idf_lang) == 0.0
+    # confound phrases (proper nouns colliding with a keyword's stem) must not count
+    assert "unit" not in stem_tokens("the united states and united nations", "en")
+    assert "unit" in stem_tokens("we stand united in this", "en")
+    assert "قطع" not in stem_tokens("جنوب قطاع غزة", "ar")
 
 
 if __name__ == "__main__":

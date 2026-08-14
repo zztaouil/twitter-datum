@@ -27,7 +27,7 @@ sys.path.insert(0, str(BASE_DIR.parent))
 SECRET_KEY = 'django-insecure-h#=4^f(2idqp1bb#_p4%-4_&3o*j7&#$#y5ep(=z-)nz7gzz2r'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'twitter-datum.17082711.xyz']
 
