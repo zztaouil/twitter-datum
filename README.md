@@ -115,3 +115,22 @@ For large scale extraction.
 [أمريكا, العالم, الصهيوني, العدو, فلسطين, المقاومة, المنطقة]
 
 ---
+
+### Gephi workflow for the final co-mention graph
+
+- Layout:
+  - Algorithm: `OpenOrd`
+  - Edge Cut: `0.3` *
+  - Expansion contraction scale: `0.2` *
+- Edges:
+  - Curved: `enabled`
+  - Colours: `mixed/source-target`
+  - Opacity: `5%` *
+  - Thickness: `0.25` *
+- Node Labels:
+  - Enabled: `yes`
+  - Proportional sizing: `enabled`
+  - Overlap avoidance: `enabled`
+- Export:
+  - Background: `light or dark`
+  - Format: `PNG, SVG, or PDF`

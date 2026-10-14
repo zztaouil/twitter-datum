@@ -3,6 +3,7 @@ Co-mention graph — nodes = users, edges = co-mentions (author + every @mention
 Pre-computes eigenvector centrality (size) and Louvain modularity (colour); layout is done in Gephi.
 
 Usage: uv run python tools/export_comention.py ACCOUNT [ACCOUNT ...] [--depth 1] [--limit 10000] [--db data.db]
+       [--labels-per-community 3] [--min-label-community 20]
        uv run python tools/export_comention.py          # self-check only
 
 Depth 1 reads the seed accounts' tweets. Each subsequent level reads tweets by
@@ -18,7 +19,8 @@ Gephi:
   3. Appearance → Partition modularity_class (colour), Ranking eigenvector 5–80 (size). Never Apply "Unique".
   4. Layout → OpenOrd (big graphs) or ForceAtlas2 LinLog + Prevent overlap (<2k nodes), then Noverlap.
   5. Preview → Edges: Rescale weight 0.1–2 (raw weights reach ~1700 px!), opacity 40, curved, colour mixed.
-     Labels: font ~6, proportional size on. Export PNG/SVG.
+     Labels: font ~12, proportional size on. Only targets and leading nodes in large communities are labelled.
+     Export PNG/SVG.
 """
 import argparse
 import itertools
@@ -101,7 +103,8 @@ def expand(conn, accounts: list[str], limit: int, depth: int) -> nx.Graph:
     return g
 
 
-def style(g: nx.Graph) -> None:
+def style(g: nx.Graph, targets=(), labels_per_community: int = 3,
+          min_label_community: int = 20) -> None:
     # numpy solver: power iteration stalls on star-shaped graphs. It rejects disconnected graphs,
     # so solve per component, scaled by component share so small islands stay small.
     eig = {}
@@ -110,16 +113,27 @@ def style(g: nx.Graph) -> None:
         sub = nx.eigenvector_centrality_numpy(g.subgraph(comp), weight="weight") if len(comp) > 2 else dict.fromkeys(comp, 1)
         eig |= {n: v * share for n, v in sub.items()}
     communities = sorted(nx.community.louvain_communities(g, weight="weight", seed=42), key=len, reverse=True)
+    targets = {target.lstrip("@").lower() for target in targets}
+    labelled = targets & set(g)
+    for members in communities:
+        if len(members) >= min_label_community:
+            ranked = sorted(members, key=lambda n: (eig[n], g.degree(n, weight="weight"), n), reverse=True)
+            labelled.update(ranked[:labels_per_community])
     top = max(eig.values()) or 1
     for cls, members in enumerate(communities):
         r, gr, b = PALETTE[cls] if cls < len(PALETTE) else GREY
         for n in members:
             g.nodes[n].update(
-                label=n, eigenvector=eig[n], modularity_class=cls, degree=g.degree(n),
+                # An empty GEXF label prevents Gephi Preview from trying to label every node.
+                # Keep username separately so it remains available in Data Laboratory.
+                label=n if n in labelled else "", username=n, show_label=n in labelled,
+                eigenvector=eig[n], modularity_class=cls, degree=g.degree(n),
                 viz={"size": 2 + 58 * eig[n] / top, "color": {"r": r, "g": gr, "b": b, "a": 1.0},
                      "position": {"x": random.uniform(-1000, 1000), "y": random.uniform(-1000, 1000), "z": 0.0}},
             )
     print(f"{len(communities)} communities (top sizes: {[len(c) for c in communities[:8]]})")
+    print(f"{len(labelled)} labels (targets + up to {labels_per_community} central nodes "
+          f"per community with at least {min_label_community} nodes)")
     print("top eigenvector:", ", ".join(n for n, _ in sorted(eig.items(), key=lambda kv: -kv[1])[:15]))
 
 
@@ -132,9 +146,10 @@ def write_gexf(g: nx.Graph, path) -> None:
         writer.write(output)
 
 
-def run(conn, accounts: list[str], limit: int, depth: int = 1) -> None:
+def run(conn, accounts: list[str], limit: int, depth: int = 1,
+        labels_per_community: int = 3, min_label_community: int = 20) -> None:
     g = expand(conn, accounts, limit, depth)
-    style(g)
+    style(g, accounts, labels_per_community, min_label_community)
     suffix = f"_depth{depth}" if depth > 1 else ""
     path = f"out/comention_{'_'.join(acct.lstrip('@') for acct in accounts)}{suffix}.gexf"
     os.makedirs("out", exist_ok=True)
@@ -147,6 +162,11 @@ def selfcheck() -> None:
     assert set(g.nodes) == {"statedept", "secrubio", "potus"}, g.nodes
     assert g["statedept"]["secrubio"]["weight"] == 2
     assert g["secrubio"]["potus"]["weight"] == 1
+    style(g, ["@StateDept"], labels_per_community=1, min_label_community=1)
+    assert g.nodes["statedept"]["label"] == "statedept"
+    assert g.nodes["statedept"]["show_label"] is True
+    assert sum(bool(data["label"]) for _, data in g.nodes(data=True)) == 2
+    assert all(data["username"] == node for node, data in g.nodes(data=True))
     # Branches, cycles, leaf accounts, and repeated co-mentions across authors.
     with sqlite3.connect(":memory:") as conn:
         conn.executescript("""
@@ -177,12 +197,18 @@ if __name__ == "__main__":
     p.add_argument("--limit", type=int, default=10000)
     p.add_argument("--depth", type=int, default=1)
     p.add_argument("--db", default="data.db")
+    p.add_argument("--labels-per-community", type=int, default=3,
+                   help="label this many high-centrality nodes in each large community (default: 3)")
+    p.add_argument("--min-label-community", type=int, default=20,
+                   help="only add community labels at or above this community size (default: 20)")
     args = p.parse_args()
-    if args.limit < 1 or args.depth < 1:
-        p.error("--limit and --depth must be positive integers")
+    if args.limit < 1 or args.depth < 1 or args.labels_per_community < 0 or args.min_label_community < 1:
+        p.error("--limit, --depth, and --min-label-community must be positive; "
+                "--labels-per-community must be non-negative")
     if args.accounts:
         from pathlib import Path
         with sqlite3.connect(Path(args.db).resolve().as_uri() + "?mode=ro", uri=True) as conn:
-            run(conn, args.accounts, args.limit, args.depth)
+            run(conn, args.accounts, args.limit, args.depth,
+                args.labels_per_community, args.min_label_community)
     else:
         selfcheck()
