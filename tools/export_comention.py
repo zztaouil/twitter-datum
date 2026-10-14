@@ -2,8 +2,15 @@
 Co-mention graph — nodes = users, edges = co-mentions (author + every @mention in the same tweet).
 Pre-computes eigenvector centrality (size) and Louvain modularity (colour); layout is done in Gephi.
 
-Usage: uv run python tools/export_comention.py ACCOUNT [ACCOUNT ...] [--limit 10000] [--db data.db]
+Usage: uv run python tools/export_comention.py ACCOUNT [ACCOUNT ...] [--depth 1] [--limit 10000] [--db data.db]
        uv run python tools/export_comention.py          # self-check only
+
+Depth 1 reads the seed accounts' tweets. Each subsequent level reads tweets by
+newly mentioned accounts, when those accounts have posts in the database.
+Each author is expanded once, using up to --limit latest non-reply tweets.
+Co-mention weights count contributing tweets. Accounts without posts remain leaf nodes.
+Recursive exports use out/comention_<acct>_depth<N>.gexf.
+Exports use GEXF 1.3 with visualization attributes for Gephi.
 
 Gephi:
   1. Open out/comention_<acct>.gexf (undirected, merge strategy sum).
@@ -18,10 +25,12 @@ import itertools
 import os
 import random
 import re
+import sqlite3
 import sys
 sys.path.insert(0, os.getcwd())  # $(pwd) so `src` resolves when run from project root
 
 import networkx as nx
+from networkx.readwrite.gexf import GEXFWriter
 
 MENTION = re.compile(r"(?<!\w)@([A-Za-z0-9_]{1,15})")
 PALETTE = [  # one colour per big community, the rest grey
@@ -34,12 +43,61 @@ GREY = (190, 190, 190)
 def build(rows) -> nx.Graph:
     """rows = [(author, text)] → weighted undirected co-mention graph."""
     g = nx.Graph()
+    add_rows(g, rows)
+    return g
+
+
+def add_rows(g: nx.Graph, rows) -> None:
+    """Accumulate tweets without replacing weights from previous levels."""
     for author, text in rows:
         people = {author.lower(), *(m.lower() for m in MENTION.findall(text or ""))}
         g.add_node(author.lower())
         for a, b in itertools.combinations(sorted(people), 2):
             w = g.get_edge_data(a, b, {"weight": 0})["weight"]
             g.add_edge(a, b, weight=w + 1)
+
+
+def expand(conn, accounts: list[str], limit: int, depth: int) -> nx.Graph:
+    """Expand each reached author once; depth counts rounds of authored tweets."""
+    author_ids = {}
+    for username, user_id in conn.execute("""
+        SELECT DISTINCT u.username, u.id
+        FROM users u JOIN tweets t ON t.user_id = u.id
+        WHERE t.parent_tweet_id IS NULL
+    """):
+        if username:
+            author_ids.setdefault(username.lower(), []).append(user_id)
+
+    frontier = {acct.lstrip("@").lower() for acct in accounts}
+    g = nx.Graph()
+    g.add_nodes_from((acct, {"discovery_depth": 0}) for acct in frontier)
+    expanded = set()
+    for level in range(1, depth + 1):
+        before = set(g)
+        tweets = 0
+        authors = 0
+        for acct in sorted(frontier - expanded):
+            expanded.add(acct)
+            ids = author_ids.get(acct)
+            if not ids:
+                continue
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(f"""
+                SELECT u.username, t.text FROM tweets t JOIN users u ON u.id = t.user_id
+                WHERE t.user_id IN ({placeholders}) AND t.parent_tweet_id IS NULL
+                ORDER BY t.created_at DESC, t.id DESC LIMIT ?
+            """, (*ids, limit)).fetchall()
+            authors += 1
+            tweets += len(rows)
+            add_rows(g, rows)
+        frontier = set(g) - before
+        for acct in frontier:
+            g.nodes[acct]["discovery_depth"] = level
+        print(f"depth {level}: {g.number_of_nodes()} nodes, {g.number_of_edges()} edges "
+              f"({authors} authors expanded, {tweets} tweets, {len(frontier)} new users)")
+        if not frontier:
+            print(f"expansion saturated at depth {level}")
+            break
     return g
 
 
@@ -65,22 +123,22 @@ def style(g: nx.Graph) -> None:
     print("top eigenvector:", ", ".join(n for n, _ in sorted(eig.items(), key=lambda kv: -kv[1])[:15]))
 
 
-def run(conn, accounts: list[str], limit: int) -> None:
-    rows = []
-    for acct in accounts:
-        cur = conn.execute("""
-            SELECT u.username, t.text FROM tweets t JOIN users u ON u.id = t.user_id
-            WHERE lower(u.username) = lower(?) AND t.parent_tweet_id IS NULL
-            ORDER BY t.created_at DESC LIMIT ?
-        """, (acct, limit))
-        fetched = cur.fetchall()
-        print(f"{acct}: {len(fetched)} tweets")
-        rows += fetched
-    g = build(rows)
+def write_gexf(g: nx.Graph, path) -> None:
+    """Write GEXF 1.3, retaining node attributes, edge weights, and styling."""
+    writer = GEXFWriter(g, version="1.3")
+    # NetworkX 3.6.1's 1.3 entry omits 'www.' from the XML Schema namespace.
+    writer.xml.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+    with open(path, "wb") as output:
+        writer.write(output)
+
+
+def run(conn, accounts: list[str], limit: int, depth: int = 1) -> None:
+    g = expand(conn, accounts, limit, depth)
     style(g)
-    path = f"out/comention_{'_'.join(accounts)}.gexf"
+    suffix = f"_depth{depth}" if depth > 1 else ""
+    path = f"out/comention_{'_'.join(acct.lstrip('@') for acct in accounts)}{suffix}.gexf"
     os.makedirs("out", exist_ok=True)
-    nx.write_gexf(g, path)
+    write_gexf(g, path)
     print(f"graph: {g.number_of_nodes()} nodes, {g.number_of_edges()} edges → {path}")
 
 
@@ -89,6 +147,27 @@ def selfcheck() -> None:
     assert set(g.nodes) == {"statedept", "secrubio", "potus"}, g.nodes
     assert g["statedept"]["secrubio"]["weight"] == 2
     assert g["secrubio"]["potus"]["weight"] == 1
+    # Branches, cycles, leaf accounts, and repeated co-mentions across authors.
+    with sqlite3.connect(":memory:") as conn:
+        conn.executescript("""
+            CREATE TABLE users (id TEXT, username TEXT);
+            CREATE TABLE tweets (id TEXT, user_id TEXT, text TEXT, created_at TEXT, parent_tweet_id TEXT);
+            INSERT INTO users VALUES ('1', 'Seed'), ('2', 'Branch'), ('3', 'Next');
+            INSERT INTO tweets VALUES
+                ('1', '1', '@Branch @Leaf', '2026-01-01', NULL),
+                ('2', '2', '@Seed @Next', '2026-01-01', NULL),
+                ('3', '3', '@Branch @End', '2026-01-01', NULL),
+                ('4', '1', '@ReplyOnly', '2026-01-02', '1');
+        """)
+        first = expand(conn, ["@SEED"], 10000, 1)
+        assert set(first) == {"seed", "branch", "leaf"}
+        third = expand(conn, ["Seed"], 10000, 3)
+        assert set(third) == {"seed", "branch", "leaf", "next", "end"}
+        assert third["seed"]["branch"]["weight"] == 2
+        assert third["branch"]["next"]["weight"] == 2
+        assert third.nodes["end"]["discovery_depth"] == 3
+        saturated = expand(conn, ["Seed"], 10000, 6)
+        assert dict(third.edges) == dict(saturated.edges)
     print("selfcheck ok")
 
 
@@ -96,9 +175,14 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("accounts", nargs="*")
     p.add_argument("--limit", type=int, default=10000)
+    p.add_argument("--depth", type=int, default=1)
     p.add_argument("--db", default="data.db")
     args = p.parse_args()
-    selfcheck()
+    if args.limit < 1 or args.depth < 1:
+        p.error("--limit and --depth must be positive integers")
     if args.accounts:
-        import src.core.db as db
-        run(db.init_db(args.db), args.accounts, args.limit)
+        from pathlib import Path
+        with sqlite3.connect(Path(args.db).resolve().as_uri() + "?mode=ro", uri=True) as conn:
+            run(conn, args.accounts, args.limit, args.depth)
+    else:
+        selfcheck()
