@@ -19,7 +19,8 @@ Gephi:
   3. Appearance → Partition modularity_class (colour), Ranking eigenvector 5–80 (size). Never Apply "Unique".
   4. Layout → OpenOrd (big graphs) or ForceAtlas2 LinLog + Prevent overlap (<2k nodes), then Noverlap.
   5. Preview → Edges: Rescale weight 0.1–2 (raw weights reach ~1700 px!), opacity 40, curved, colour mixed.
-     Labels: font ~12, proportional size on. Only targets and leading nodes in large communities are labelled.
+     Labels: font ~12, proportional size on. Targets are full-size so their labels stay prominent;
+     only targets and leading nodes in large communities are labelled.
      Export PNG/SVG.
 """
 import argparse
@@ -117,18 +118,22 @@ def style(g: nx.Graph, targets=(), labels_per_community: int = 3,
     labelled = targets & set(g)
     for members in communities:
         if len(members) >= min_label_community:
-            ranked = sorted(members, key=lambda n: (eig[n], g.degree(n, weight="weight"), n), reverse=True)
+            ranked = sorted(members - targets,
+                            key=lambda n: (eig[n], g.degree(n, weight="weight"), n), reverse=True)
             labelled.update(ranked[:labels_per_community])
     top = max(eig.values()) or 1
     for cls, members in enumerate(communities):
         r, gr, b = PALETTE[cls] if cls < len(PALETTE) else GREY
         for n in members:
+            is_target = n in targets
+            size = 60 if is_target else 2 + 58 * eig[n] / top
             g.nodes[n].update(
                 # An empty GEXF label prevents Gephi Preview from trying to label every node.
                 # Keep username separately so it remains available in Data Laboratory.
                 label=n if n in labelled else "", username=n, show_label=n in labelled,
+                is_target=is_target,
                 eigenvector=eig[n], modularity_class=cls, degree=g.degree(n),
-                viz={"size": 2 + 58 * eig[n] / top, "color": {"r": r, "g": gr, "b": b, "a": 1.0},
+                viz={"size": size, "color": {"r": r, "g": gr, "b": b, "a": 1.0},
                      "position": {"x": random.uniform(-1000, 1000), "y": random.uniform(-1000, 1000), "z": 0.0}},
             )
     print(f"{len(communities)} communities (top sizes: {[len(c) for c in communities[:8]]})")
@@ -165,6 +170,10 @@ def selfcheck() -> None:
     style(g, ["@StateDept"], labels_per_community=1, min_label_community=1)
     assert g.nodes["statedept"]["label"] == "statedept"
     assert g.nodes["statedept"]["show_label"] is True
+    assert g.nodes["statedept"]["is_target"] is True
+    assert g.nodes["statedept"]["viz"]["size"] == 60
+    assert g.nodes["potus"]["is_target"] is False
+    assert g.nodes["potus"]["viz"]["size"] < 60
     assert sum(bool(data["label"]) for _, data in g.nodes(data=True)) == 2
     assert all(data["username"] == node for node, data in g.nodes(data=True))
     # Branches, cycles, leaf accounts, and repeated co-mentions across authors.

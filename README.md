@@ -131,6 +131,7 @@ For large scale extraction.
   - Enabled: `yes`
   - Proportional sizing: `enabled`
   - Overlap avoidance: `enabled`
+  - Requested target accounts are exported at the maximum node size so their labels remain prominent
 - Export:
   - Background: `light or dark`
   - Format: `PNG, SVG, or PDF`
