@@ -137,7 +137,7 @@ class TwitterClient:
         client._ct = None
         return client
 
-    def _transaction(self) -> ClientTransaction:
+    def _transaction(self, session: Session) -> ClientTransaction:
         # ponytail: bootstrapped once and cached for the process lifetime;
         # X occasionally redeploys the home page's animation key mid-run,
         # which would make every subsequent transaction id invalid until
@@ -147,8 +147,17 @@ class TwitterClient:
             # x.com sometimes serves a migration interstitial (redirect meta tag
             # or a form to POST) instead of the real homepage; handle_x_migration
             # follows that hop so the ondemand script tag is actually present.
-            home_soup = handle_x_migration(self._http)
-            ondemand = self._http.get(get_ondemand_file_url(home_soup))
+            # Anonymous requests now redirect to the logged-out onboarding app,
+            # which has no ondemand.s bundle. Bootstrap with the selected session.
+            headers = {**_tid_headers(), **session.headers()}
+            with httpx.Client(
+                follow_redirects=True,
+                timeout=30.0,
+                headers=headers,
+            ) as bootstrap:
+                home_soup = handle_x_migration(bootstrap)
+                ondemand = bootstrap.get(get_ondemand_file_url(home_soup))
+                ondemand.raise_for_status()
             self._ct = ClientTransaction(home_page_response=home_soup, ondemand_file_response=ondemand.text)
         return self._ct
 
@@ -189,7 +198,7 @@ class TwitterClient:
             params["fieldToggles"] = field_toggles
 
         headers = session.headers()
-        headers["x-client-transaction-id"] = self._transaction().generate_transaction_id(
+        headers["x-client-transaction-id"] = self._transaction(session).generate_transaction_id(
             method="GET", path=f"/i/api/graphql/{endpoint}"
         )
 
