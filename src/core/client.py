@@ -57,7 +57,7 @@ GQL_FEATURES = json.dumps({
 }, separators=(",", ":"))
 
 _COMMON_HEADERS = {
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
     "accept": "*/*",
     "accept-language": "en-US,en;q=0.9",
     "content-type": "application/json",
@@ -149,16 +149,31 @@ class TwitterClient:
             # follows that hop so the ondemand script tag is actually present.
             # Anonymous requests now redirect to the logged-out onboarding app,
             # which has no ondemand.s bundle. Bootstrap with the selected session.
-            headers = {**_tid_headers(), **session.headers()}
-            with httpx.Client(
-                follow_redirects=True,
-                timeout=30.0,
-                headers=headers,
-            ) as bootstrap:
-                home_soup = handle_x_migration(bootstrap)
-                ondemand = bootstrap.get(get_ondemand_file_url(home_soup))
-                ondemand.raise_for_status()
-            self._ct = ClientTransaction(home_page_response=home_soup, ondemand_file_response=ondemand.text)
+            candidates = [session, *(candidate for candidate in self._pool if candidate is not session)]
+            failures: list[str] = []
+            for candidate in candidates:
+                headers = {**_tid_headers(), **candidate.headers()}
+                with httpx.Client(
+                    follow_redirects=True,
+                    timeout=30.0,
+                    headers=headers,
+                ) as bootstrap:
+                    home_soup = handle_x_migration(bootstrap)
+                    if "ondemand.s" not in str(home_soup):
+                        failures.append(candidate.username or candidate.id or "anonymous")
+                        continue
+                    ondemand = bootstrap.get(get_ondemand_file_url(home_soup))
+                    ondemand.raise_for_status()
+                self._ct = ClientTransaction(
+                    home_page_response=home_soup,
+                    ondemand_file_response=ondemand.text,
+                )
+                break
+            else:
+                raise RuntimeError(
+                    "Transaction bootstrap failed: authenticated homepage missing "
+                    f"ondemand.s for {len(failures)} session(s)"
+                )
         return self._ct
 
     def _pick_session(self, endpoint: str) -> Session:
