@@ -57,7 +57,118 @@ TARGETS = [
     "IRIMFA_AR",
     "MFATurkeyArabic",
     "USCIRF",
-    # "AIPAC",
+
+    # Co-mention expansion: global bridge accounts.
+    "POTUS",
+    "SecBlinken",
+    "FoxNews",
+    "UN",
+    "SecPompeo",
+    "VP",
+    "StateDeptSpox",
+    "USAmBIsrael",
+    "NATO",
+    "UNRWA",
+    "UN_HRC",
+    "USUN",
+    "Pontifex",
+    "AIPAC",
+
+    # Co-mention expansion: Palestinian civil society and media.
+    "alhaq_org",
+    "addameer",
+    "adalahenglish",
+    "medicalaidpal",
+    "ochaopt",
+    "btselem",
+    "aliabunimah",
+    "MiddleEastMnt",
+    "AJEnglish",
+    "intifada",
+    "HRW",
+    "Amnesty",
+    "UNHumanRights",
+    "AntonioGuterres",
+
+    # Co-mention expansion: Iranian diplomatic network.
+    "araghchi",
+    "JZarif",
+    "Amirabdolahian",
+    "IRIMFA_SpOX",
+    "samousavi9",
+    "SKhatibzadeh",
+    "DrPezeshkian",
+    "site_khamenei",
+
+    # Co-mention expansion: Turkish state and religious network.
+    "EmineErdogan",
+    "DIBAliErbas",
+    "Serdar_Cam",
+    "SerkanKayalar_",
+    "iletisim",
+    "AKParti",
+    "TurkKizilayi",
+    "AFADBaskanlik",
+    "TCKulturTurizm",
+    "Ahmet_Davutoglu",
+
+    # Co-mention expansion: Israeli political and diplomatic network.
+    "GiladErdan1",
+    "AvigdorLiberman",
+    "AmbDermer",
+    "YairLapid",
+    "GidonSaar",
+    "Isaac_Herzog",
+    "Israel_Katz",
+    "GantzBe",
+    "N12News",
+    "OfirGendelman",
+    "IsraelPolice",
+
+    # Co-mention expansion: Arab, Islamic, and Moroccan institutions.
+    "AdelAlJubeir",
+    "GCCSG",
+    "OIC_IPHRC",
+    "ArabLeague_GS",
+    "AUC_MoussaFaki",
+    "ICESCO_AR",
+    "KingSalman",
+    "FaisalbinFarhan",
+    "SPAGov",
+    "KSRelief",
+    "UNArabic",
+    "MoroccanEmbassy",
+    "ChefGov_ma",
+    "AymanHsafadi",
+    "YazourhF",
+
     # "USIPorg",
     # "AIPACofficial",
 ]
+
+
+# Focused campaign used by gamma.py to acquire authored timelines for the
+# accounts that currently stop the co-mention graph at depth 1. Every entry
+# must also remain in TARGETS so the rest of the project recognises it.
+GAMMA_TARGETS = [
+    "POTUS", "SecBlinken", "FoxNews", "UN", "SecPompeo", "VP",
+    "StateDeptSpox", "USAmBIsrael", "NATO", "UNRWA", "UN_HRC", "USUN",
+    "Pontifex", "AIPAC",
+    "alhaq_org", "addameer", "adalahenglish", "medicalaidpal", "ochaopt",
+    "btselem", "aliabunimah", "MiddleEastMnt", "AJEnglish", "intifada",
+    "HRW", "Amnesty", "UNHumanRights", "AntonioGuterres",
+    "araghchi", "JZarif", "Amirabdolahian", "IRIMFA_SpOX", "samousavi9",
+    "SKhatibzadeh", "DrPezeshkian", "site_khamenei",
+    "EmineErdogan", "DIBAliErbas", "Serdar_Cam", "SerkanKayalar_",
+    "iletisim", "AKParti", "TurkKizilayi", "AFADBaskanlik",
+    "TCKulturTurizm", "Ahmet_Davutoglu",
+    "GiladErdan1", "AvigdorLiberman", "AmbDermer", "YairLapid",
+    "GidonSaar", "Isaac_Herzog", "Israel_Katz", "GantzBe", "N12News",
+    "OfirGendelman", "IsraelPolice",
+    "AdelAlJubeir", "GCCSG", "OIC_IPHRC", "ArabLeague_GS",
+    "AUC_MoussaFaki", "ICESCO_AR", "KingSalman", "FaisalbinFarhan",
+    "SPAGov", "KSRelief", "UNArabic", "MoroccanEmbassy", "ChefGov_ma",
+    "AymanHsafadi", "YazourhF",
+]
+
+assert set(GAMMA_TARGETS) <= set(TARGETS)

@@ -25,7 +25,7 @@ from datetime import date, timedelta
 import httpx
 
 from src import TwitterClient, get_profile, search_tweets
-from src.config import TARGETS
+from src.config import GAMMA_TARGETS
 from src.core.client import RateLimitError
 import src.core.db as db
 
@@ -164,7 +164,7 @@ def main():
     try:
         while not _stop:
             pending = sorted(
-                (t for t in TARGETS if _coverage_pct(conn, t) < TARGET_COVERAGE),
+                (t for t in GAMMA_TARGETS if _coverage_pct(conn, t) < TARGET_COVERAGE),
                 key=lambda t: _coverage_pct(conn, t),
             )
             if not pending:
