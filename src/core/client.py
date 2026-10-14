@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from bs4 import BeautifulSoup
 from x_client_transaction import ClientTransaction
-from x_client_transaction.utils import generate_headers as _tid_headers, get_ondemand_file_url, handle_x_migration
+from x_client_transaction.utils import generate_headers as _tid_headers, get_ondemand_file_url
 
 BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 BASE = "https://x.com/i/api/graphql"
@@ -144,9 +145,6 @@ class TwitterClient:
         # the process restarts. The existing per-chunk/per-target try/except
         # in the extractors already contains that failure mode.
         if self._ct is None:
-            # x.com sometimes serves a migration interstitial (redirect meta tag
-            # or a form to POST) instead of the real homepage; handle_x_migration
-            # follows that hop so the ondemand script tag is actually present.
             # Anonymous requests now redirect to the logged-out onboarding app,
             # which has no ondemand.s bundle. Bootstrap with the selected session.
             candidates = [session, *(candidate for candidate in self._pool if candidate is not session)]
@@ -158,7 +156,9 @@ class TwitterClient:
                     timeout=30.0,
                     headers=headers,
                 ) as bootstrap:
-                    home_soup = handle_x_migration(bootstrap)
+                    home = bootstrap.get("https://x.com/home")
+                    home.raise_for_status()
+                    home_soup = BeautifulSoup(home.content, "html.parser")
                     if "ondemand.s" not in str(home_soup):
                         failures.append(candidate.username or candidate.id or "anonymous")
                         continue
