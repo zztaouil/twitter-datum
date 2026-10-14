@@ -150,14 +150,23 @@ class TwitterClient:
             candidates = [session, *(candidate for candidate in self._pool if candidate is not session)]
             failures: list[str] = []
             for candidate in candidates:
-                headers = {**_tid_headers(), **candidate.headers()}
+                # Homepage rejects GraphQL's bearer/API headers with 401. Send
+                # only browser session headers while locating ondemand.s.
+                headers = {
+                    "user-agent": _COMMON_HEADERS["user-agent"],
+                    "cookie": f"auth_token={candidate.auth_token}; ct0={candidate.ct0}",
+                    "x-csrf-token": candidate.ct0,
+                    "x-twitter-auth-type": "OAuth2Session",
+                }
                 with httpx.Client(
                     follow_redirects=True,
                     timeout=30.0,
                     headers=headers,
                 ) as bootstrap:
                     home = bootstrap.get("https://x.com/home")
-                    home.raise_for_status()
+                    if home.status_code != 200:
+                        failures.append(candidate.username or candidate.id or "anonymous")
+                        continue
                     home_soup = BeautifulSoup(home.content, "html.parser")
                     if "ondemand.s" not in str(home_soup):
                         failures.append(candidate.username or candidate.id or "anonymous")
