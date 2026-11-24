@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.db import connection, connections
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.views.decorators.cache import cache_page
+from django.views.decorators.http import require_GET
 
 from src.config import TARGETS
 
@@ -28,10 +29,25 @@ def _explode_categories(results: list[dict]) -> None:
         r["categories"] = r.pop("category").split(",")
 
 
-def _pinned_ids() -> set[str]:
+def _pinned_ids(tweet_ids: list[str]) -> set[str]:
+    if not tweet_ids:
+        return set()
+    placeholders = ", ".join(["%s"] * len(tweet_ids))
     with connections["pins"].cursor() as cur:
-        cur.execute("SELECT tweet_id FROM pinned_tweets")
+        cur.execute(
+            f"SELECT tweet_id FROM pinned_tweets WHERE tweet_id IN ({placeholders})",
+            tweet_ids,
+        )
         return {row[0] for row in cur.fetchall()}
+
+
+@require_GET
+def health(request):
+    with connection.cursor() as cur:
+        cur.execute("SELECT 1 FROM tweets LIMIT 1")
+    with connections["pins"].cursor() as cur:
+        cur.execute("SELECT 1 FROM pinned_tweets LIMIT 1")
+    return JsonResponse({"ok": True})
 
 
 def search(request):
@@ -99,7 +115,7 @@ def search(request):
         results = [dict(zip(columns, row)) for row in cur.fetchall()]
 
     _explode_categories(results)
-    pinned_ids = _pinned_ids()
+    pinned_ids = _pinned_ids([r["id"] for r in results])
     for r in results:
         r["pinned"] = r["id"] in pinned_ids
 

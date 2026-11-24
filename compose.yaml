@@ -1,0 +1,61 @@
+name: twitter-datum
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/api.Dockerfile
+    env_file: ${DATUM_CONFIG_DIR:-${HOME}/.config/twitter-datum}/api.env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.production
+      DATUM_API_HOST: ${DATUM_API_HOST:-api-twitter-datum.17082711.xyz}
+      DATUM_TWEETS_DB: /state/tweets.sqlite3
+      DATUM_PINS_DB: /state/pins.sqlite3
+    volumes:
+      - ${DATUM_STATE_DIR:-../state}:/state
+    user: ${DATUM_UID:-1000}:${DATUM_GID:-1000}
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health', timeout=3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+      args:
+        PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api-twitter-datum.17082711.xyz}
+    env_file: ${DATUM_CONFIG_DIR:-${HOME}/.config/twitter-datum}/web.env
+    environment:
+      NODE_ENV: production
+      HOST: 127.0.0.1
+      PORT: 3000
+      INTERNAL_API_URL: http://127.0.0.1:8000
+      DATABASE_URL: /state/auth.sqlite3
+    volumes:
+      - ${DATUM_STATE_DIR:-../state}:/state
+    user: ${DATUM_UID:-1000}:${DATUM_GID:-1000}
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/auth/get-session').then(response => { if (!response.ok) process.exit(1) })"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.11.2
+    profiles: [tunnel]
+    command: ["tunnel", "--no-autoupdate", "run"]
+    env_file: ${DATUM_CONFIG_DIR:-${HOME}/.config/twitter-datum}/tunnel.env
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
