@@ -51,9 +51,19 @@ def save_user(conn: sqlite3.Connection, user: User) -> None:
 def save_tweet(conn: sqlite3.Connection, tweet: Tweet, parent_tweet_id: str | None = None) -> None:
     save_user(conn, tweet.user)
     conn.execute(
-        """INSERT OR REPLACE INTO tweets
+        """INSERT INTO tweets
            (id, user_id, text, created_at, reply_count, retweet_count, like_count, view_count, parent_tweet_id, media_type)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(id) DO UPDATE SET
+               user_id = excluded.user_id,
+               text = excluded.text,
+               created_at = excluded.created_at,
+               reply_count = excluded.reply_count,
+               retweet_count = excluded.retweet_count,
+               like_count = excluded.like_count,
+               view_count = excluded.view_count,
+               parent_tweet_id = COALESCE(excluded.parent_tweet_id, tweets.parent_tweet_id),
+               media_type = COALESCE(excluded.media_type, tweets.media_type)""",
         (tweet.id, tweet.user.id, tweet.text, tweet.created_at.isoformat(),
          tweet.reply_count, tweet.retweet_count, tweet.like_count, tweet.view_count,
          parent_tweet_id, tweet.media_type),
