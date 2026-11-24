@@ -2,6 +2,7 @@ import itertools
 import json
 from collections import Counter
 
+from django.core.cache import cache
 from django.db import connection, connections
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.views.decorators.cache import cache_page
@@ -158,23 +159,29 @@ def unpin(request, tweet_id):
     return JsonResponse({"ok": True})
 
 
-@cache_page(ANALYTICS_CACHE_SECONDS)
+def _author_category_counts():
+    def query():
+        with connection.cursor() as cur:
+            cur.execute(
+                """SELECT u.username, t.category, COUNT(*)
+                   FROM tweets t JOIN users u ON u.id = t.user_id
+                   WHERE t.category IS NOT NULL
+                   GROUP BY u.username, t.category"""
+            )
+            return cur.fetchall()
+
+    return cache.get_or_set("author_category_counts", query, ANALYTICS_CACHE_SECONDS)
+
+
 def analytics(request):
-    with connection.cursor() as cur:
-        cur.execute(
-            """SELECT u.username, COALESCE(t.category, 'unclassified')
-               FROM tweets t JOIN users u ON u.id = t.user_id
-               WHERE t.category IS NOT NULL"""
-        )
-        # a tweet with several categories counts once per category here (so the
-        # per-target bars show every aspect it touches) but once in `tweet_totals`
-        by_user: dict[str, Counter] = {}
-        tweet_totals: Counter = Counter()
-        for username, category in cur.fetchall():
-            tweet_totals[username] += 1
-            counts = by_user.setdefault(username, Counter())
-            for c in category.split(","):
-                counts[c] += 1
+    # Each tweet contributes once to its author's total and once per label.
+    by_user: dict[str, Counter] = {}
+    tweet_totals: Counter = Counter()
+    for username, category, count in _author_category_counts():
+        tweet_totals[username] += count
+        counts = by_user.setdefault(username, Counter())
+        for c in category.split(","):
+            counts[c] += count
 
     ordered_categories = sorted(CATEGORIES)
     targets = [
@@ -191,20 +198,13 @@ def analytics(request):
     return JsonResponse({"targets": targets, "categories": ordered_categories})
 
 
-@cache_page(ANALYTICS_CACHE_SECONDS)
 def category_combos(request):
     # like `analytics` but a multi-category tweet counts once for its exact combo
     # instead of once per category (see tools/monitor.ipynb's combo breakdown chart)
-    with connection.cursor() as cur:
-        cur.execute(
-            """SELECT u.username, COALESCE(t.category, 'unclassified')
-               FROM tweets t JOIN users u ON u.id = t.user_id
-               WHERE t.category IS NOT NULL"""
-        )
-        by_user: dict[str, Counter] = {}
-        for username, category in cur.fetchall():
-            combo = category if category == "unclassified" else ",".join(sorted(c.strip() for c in category.split(",")))
-            by_user.setdefault(username, Counter())[combo] += 1
+    by_user: dict[str, Counter] = {}
+    for username, category, count in _author_category_counts():
+        combo = ",".join(sorted(c.strip() for c in category.split(",")))
+        by_user.setdefault(username, Counter())[combo] += count
 
     singles = sorted(CATEGORIES - {"unclassified"})
     ordered_combos = ["unclassified"] + [
@@ -324,15 +324,17 @@ def reply_depth(request):
     return JsonResponse({"results": results})
 
 
+@cache_page(ANALYTICS_CACHE_SECONDS)
 def facets(request):
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT COALESCE(category, 'unclassified')
-               FROM tweets WHERE category IS NOT NULL"""
+            """SELECT category, COUNT(*)
+               FROM tweets WHERE category IS NOT NULL GROUP BY category"""
         )
         cat_counts: Counter = Counter()
-        for (c,) in cur.fetchall():
-            cat_counts.update(c.split(","))
+        for category, count in cur.fetchall():
+            for label in category.split(","):
+                cat_counts[label] += count
         categories = [{"value": c, "count": n} for c, n in sorted(cat_counts.items())]
 
         cur.execute(
