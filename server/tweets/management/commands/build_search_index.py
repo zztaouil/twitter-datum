@@ -14,7 +14,10 @@ END;
 CREATE TRIGGER IF NOT EXISTS tweets_ad AFTER DELETE ON tweets BEGIN
     INSERT INTO tweets_fts(tweets_fts, rowid, text) VALUES('delete', old.rowid, old.text);
 END;
-CREATE TRIGGER IF NOT EXISTS tweets_au AFTER UPDATE ON tweets BEGIN
+DROP TRIGGER IF EXISTS tweets_au;
+CREATE TRIGGER tweets_au AFTER UPDATE ON tweets
+WHEN old.text IS NOT new.text OR old.rowid IS NOT new.rowid
+BEGIN
     INSERT INTO tweets_fts(tweets_fts, rowid, text) VALUES('delete', old.rowid, old.text);
     INSERT INTO tweets_fts(rowid, text) VALUES (new.rowid, new.text);
 END;
@@ -29,16 +32,16 @@ class Command(BaseCommand):
     help = "Create the FTS5 search index and filter indexes on the tweets table (idempotent)."
 
     def handle(self, *args, **options):
-        connection.connect()
+        connection.ensure_connection()
         with connection.cursor() as cur:
             cur.execute("SELECT name FROM sqlite_master WHERE name = 'tweets_fts'")
             existed = cur.fetchone() is not None
 
-        connection.connection.executescript(SETUP_SQL)
-
-        with connection.cursor() as cur:
-            if not existed:
-                cur.execute("INSERT INTO tweets_fts(tweets_fts) VALUES ('rebuild')")
-            cur.execute("SELECT count(*) FROM tweets_fts_docsize")
-            (indexed,) = cur.fetchone()
+        with connection.connection as sqlite:
+            sqlite.executescript("BEGIN IMMEDIATE;\n" + SETUP_SQL)
+            with connection.cursor() as cur:
+                if not existed:
+                    cur.execute("INSERT INTO tweets_fts(tweets_fts) VALUES ('rebuild')")
+                cur.execute("SELECT count(*) FROM tweets_fts_docsize")
+                (indexed,) = cur.fetchone()
         self.stdout.write(f"Search index ready ({indexed} tweets indexed).")
