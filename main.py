@@ -53,17 +53,18 @@ def main():
     for target in TARGETS:
         print(f"→ {target}")
         target_profile = get_profile(client, target)
-        db.save_user(conn, target_profile)
+        with conn:
+            db.save_user(conn, target_profile)
 
         tweets, _ = get_tweets(client, target_profile.id, max_count=100)
 
         for tweet in tweets:
-            db.save_tweet(conn, tweet)
             replies, _ = get_replies(client, tweet.id, max_count=200)
-            for reply in replies:
-                db.save_tweet(conn, reply, parent_tweet_id=tweet.id)
+            with conn:
+                db.save_tweet(conn, tweet)
+                for reply in replies:
+                    db.save_tweet(conn, reply, parent_tweet_id=tweet.id)
 
-    conn.commit()
     client.rate_limit_summary()
 
 
